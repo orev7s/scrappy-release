@@ -55,9 +55,16 @@ internal sealed record AppOptions
     /// <summary>Writes the raw elementary stream here. Diagnostics only.</summary>
     public string? DumpPath { get; init; }
 
+    /// <summary>
+    /// "1120x700" starts the window at a given size, so a screenshot can show the layout at the
+    /// minimum size instead of only at the default one.
+    /// </summary>
+    public string? WindowSize { get; init; }
+
     public static AppOptions Parse(string[] args)
     {
         string? address = null;
+        string? windowSize = null;
         bool demo = false, autoStart = false;
         string? screenshot = null;
         int delay = 1600;
@@ -82,6 +89,9 @@ internal sealed record AppOptions
                     break;
                 case "--shot" when i + 1 < args.Length:
                     screenshot = args[++i];
+                    break;
+                case "--window" when i + 1 < args.Length:
+                    windowSize = args[++i];
                     break;
                 case "--shot-delay" when i + 1 < args.Length:
                     delay = int.Parse(args[++i]);
@@ -112,6 +122,7 @@ internal sealed record AppOptions
             ShotFilter = shotFilter,
             DemoDevices = demoDevices,
             DumpPath = dump,
+            WindowSize = windowSize,
         };
     }
 }

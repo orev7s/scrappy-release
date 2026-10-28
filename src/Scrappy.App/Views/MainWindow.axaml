@@ -6,18 +6,19 @@
         Width="1120" Height="700"
         MinWidth="820" MinHeight="520">
 
-  <Grid RowDefinitions="Auto,*,32">
+  <Grid RowDefinitions="Auto,*,Auto">
 
     <!-- Top bar: which tablet, what state, start or stop. Nothing else. -->
     <Border Grid.Row="0" Background="{StaticResource SurfaceBrush}"
             BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1">
       <StackPanel>
 
-        <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto" Height="46" Margin="14,0" VerticalAlignment="Center">
+        <Grid ColumnDefinitions="Auto,2*,Auto,Auto,Auto,1.5*" Height="46" Margin="14,0" VerticalAlignment="Center">
           <TextBlock Text="Scrappy" FontSize="14" VerticalAlignment="Center" />
 
           <!-- The tablet list. Scanned, never typed: one tablet means one click, or none. -->
-          <ComboBox Grid.Column="1" Width="440" Margin="18,0,0,0" VerticalAlignment="Center"
+          <ComboBox Grid.Column="1" Margin="18,0,0,0" VerticalAlignment="Center"
+                    MinWidth="180" MaxWidth="440" HorizontalAlignment="Stretch"
                     ItemsSource="{Binding Devices}" SelectedItem="{Binding SelectedDevice}"
                     PlaceholderText="{Binding ScanState}"
                     ToolTip.Tip="Tablets that answered on this network.">
@@ -54,14 +55,19 @@
       </StackPanel>
     </Border>
 
-    <Grid Grid.Row="1" ColumnDefinitions="*,268">
+    <Grid Grid.Row="1" ColumnDefinitions="*,300">
 
       <!-- The feed itself. Nothing is drawn over it. -->
       <video:VideoView x:Name="VideoSurface" />
 
       <!-- Five choices, then a door to the rest. -->
       <Border Grid.Column="1" Background="{StaticResource SurfaceBrush}"
-              BorderBrush="{StaticResource LineBrush}" BorderThickness="1,0,0,0" Padding="16,14">
+              BorderBrush="{StaticResource LineBrush}" BorderThickness="1,0,0,0">
+        <!-- Scrolls, because the panel is taller than a 700 px window and there is no other way
+             down to the last buttons. Content is one child so the scroll extent is the whole list. -->
+        <ScrollViewer VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Disabled"
+                      AllowAutoHide="False">
+        <Border Padding="16,14,8,14">
         <StackPanel Spacing="12">
 
           <StackPanel Spacing="5">
@@ -93,7 +99,7 @@
             <TextBlock Text="Preset" Classes="muted" />
             <ComboBox ItemsSource="{Binding QualityChoices}" SelectedItem="{Binding SelectedQuality}"
                       PlaceholderText="Custom, see settings" />
-            <TextBlock Text="{Binding PresetNote}" Classes="muted" />
+            <TextBlock Text="{Binding PresetNote}" Classes="muted" TextWrapping="Wrap" />
             <Button Content="Apply preset" HorizontalAlignment="Stretch" Click="OnApplyPreset" />
             <TextBlock Classes="muted" TextWrapping="Wrap" FontSize="11"
                        Text="Presets change what the tablet encodes. Resolution and frame rate are the tablet's real cost; the panel's refresh rate never changes." />
@@ -133,27 +139,29 @@
           </Border>
 
           <Button Content="All settings" HorizontalAlignment="Stretch" Click="OnOpenSettings" />
-          <TextBlock Text="{Binding SettingsSummary}" Classes="muted" />
+          <TextBlock Text="{Binding SettingsSummary}" Classes="muted" TextWrapping="Wrap" />
           <TextBlock Text="{Binding DeviceText}" Classes="muted" TextWrapping="Wrap" />
 
         </StackPanel>
+        </Border>
+        </ScrollViewer>
       </Border>
     </Grid>
 
     <!-- Live numbers. Measured, not decorative. -->
     <Border Grid.Row="2" Background="{StaticResource SurfaceBrush}"
             BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0">
-      <StackPanel Orientation="Horizontal" Spacing="20" Margin="14,0" VerticalAlignment="Center">
-        <TextBlock Text="{Binding FpsText}" Classes="muted" />
-        <TextBlock Text="{Binding BitrateText}" Classes="muted" />
+      <WrapPanel Margin="14,7" Orientation="Horizontal">
+        <TextBlock Text="{Binding FpsText}" Classes="muted" Margin="0,0,20,0" />
+        <TextBlock Text="{Binding BitrateText}" Classes="muted" Margin="0,0,20,0" />
         <!-- Lag first among the warnings: 60 fps four seconds behind is still 60 fps. -->
-        <TextBlock Text="{Binding LagText}" Classes="muted" />
-        <TextBlock Text="{Binding DroppedText}" Classes="muted" />
-        <TextBlock Text="{Binding DecodeText}" Classes="muted" />
-        <TextBlock Text="{Binding BackendText}" Classes="muted" />
-        <TextBlock Text="{Binding AudioText}" Classes="muted" />
+        <TextBlock Text="{Binding LagText}" Classes="muted" Margin="0,0,20,0" />
+        <TextBlock Text="{Binding DroppedText}" Classes="muted" Margin="0,0,20,0" />
+        <TextBlock Text="{Binding DecodeText}" Classes="muted" Margin="0,0,20,0" />
+        <TextBlock Text="{Binding BackendText}" Classes="muted" Margin="0,0,20,0" />
+        <TextBlock Text="{Binding AudioText}" Classes="muted" Margin="0,0,20,0" />
         <TextBlock Text="{Binding LinkText}" Classes="muted" />
-      </StackPanel>
+      </WrapPanel>
     </Border>
   </Grid>
 </Window>

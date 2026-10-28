@@ -32,6 +32,9 @@ public partial class MainWindow : Window
 
         VideoSurface.Presenter = ViewModel.Presenter;
 
+        // Set before the first layout pass, so a capture at this size shows the real thing.
+        ApplyRequestedSize(this);
+
         if (Program.Options.DemoDevices.Count > 0)
         {
             ViewModel.SeedDemoDevices(Program.Options.DemoDevices.Select(ParseDemoDevice));
@@ -73,11 +76,31 @@ public partial class MainWindow : Window
                     DataContext = settingsViewModel,
                 };
 
+                ApplyRequestedSize(settingsWindow);
                 settingsWindow.Show(this);
                 target = settingsWindow;
             }
 
             CaptureAfterDelay(target, path, Program.Options.ScreenshotDelayMs);
+        }
+    }
+
+    /// <summary>
+    /// Starts a window at the size given on the command line, so a screenshot can show the layout at
+    /// the minimum size instead of only at the default one.
+    /// </summary>
+    private static void ApplyRequestedSize(Window window)
+    {
+        if (Program.Options.WindowSize is not { } requested)
+        {
+            return;
+        }
+
+        string[] parts = requested.Split('x');
+        if (parts.Length == 2 && double.TryParse(parts[0], out double w) && double.TryParse(parts[1], out double h))
+        {
+            window.Width = Math.Max(window.MinWidth, w);
+            window.Height = Math.Max(window.MinHeight, h);
         }
     }
 
@@ -221,7 +244,7 @@ public partial class MainWindow : Window
             Width = 3200,
             Height = 2136,
             RefreshHz = 144,
-            Version = "0.2.0",
+            Version = "0.2.1",
             Source = "broadcast",
             Transport = transport,
         };
