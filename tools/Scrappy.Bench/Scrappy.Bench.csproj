@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Scrappy.Bench</RootNamespace>
+    <!-- Timing runs must not be optimised away or tiered into a different shape mid-run. -->
+    <TieredPGO>false</TieredPGO>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Scrappy.Discovery\Scrappy.Discovery.csproj" />
+    <ProjectReference Include="..\..\src\Scrappy.Settings\Scrappy.Settings.csproj" />
+  </ItemGroup>
+
+</Project>

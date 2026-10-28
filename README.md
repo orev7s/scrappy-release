@@ -75,6 +75,7 @@ Needs the .NET 8 SDK. The Windows package is self contained, so no runtime is ne
 ```sh
 dotnet build Scrappy.sln
 dotnet run --project tools/Scrappy.Verify -- all
+dotnet run -c Release --project tools/Scrappy.Bench -- all
 dotnet publish src/Scrappy.App -c Release -r win-x64 --self-contained true -o dist/win-x64
 ```
 
