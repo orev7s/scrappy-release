@@ -29,6 +29,14 @@ The aim is a mirror that feels like a monitor cable. Low latency, steady frame r
 
 The tablet app answers a discovery probe while it is open, so the PC usually lists it before you press anything.
 
+### Updates
+
+On startup Scrappy asks GitHub whether a newer release exists. If there is one it offers three
+choices: **Update** opens the release page in your browser, **Skip update** asks again next launch,
+and **Don't show again** stays quiet for that version until an even newer one is published. Scrappy
+never downloads or installs anything by itself - you install the new zip yourself. With no network,
+or if GitHub cannot be reached, the check is silent. Start with `--no-update-check` to skip it.
+
 ## Using the cable
 
 USB tethering runs the same stream over the USB link. It is faster than Wi-Fi and does not compete with anything else on the network.
