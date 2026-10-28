@@ -1,0 +1,31 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Scrappy.App.Update.UpdateDialog"
+        Title="Update available"
+        Width="470" MinWidth="380"
+        SizeToContent="Height"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False">
+
+  <!--
+    Three answers, and only one of them does anything: Update opens a page, Skip closes, and
+    Don't show again remembers one version. The wording is the user's, not a paraphrase of it.
+  -->
+  <Border Background="{StaticResource SurfaceBrush}"
+          BorderBrush="{StaticResource LineBrush}" BorderThickness="1">
+    <StackPanel Margin="18">
+
+      <TextBlock Text="{Binding Question}" TextWrapping="Wrap" FontSize="13" />
+      <TextBlock Text="{Binding Detail}" TextWrapping="Wrap" Margin="0,8,0,0" />
+      <TextBlock Text="{Binding Note}" Classes="muted" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0" />
+
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,18,0,0">
+        <Button x:Name="UpdateButton" Content="Update" Classes="primary" Width="92" Click="OnUpdate" />
+        <Button x:Name="SkipButton" Content="Skip update" Width="118" Click="OnSkip" />
+        <Button x:Name="NeverButton" Content="Don't show again" Width="142" Click="OnNever" />
+      </StackPanel>
+
+    </StackPanel>
+  </Border>
+</Window>

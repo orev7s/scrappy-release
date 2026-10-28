@@ -71,6 +71,10 @@ public sealed class ScrappyApp : Application
 
             desktop.MainWindow = window;
 
+            // The update check, on its own task, once the window is up. It never blocks this
+            // method and never throws: a network that is down produces no dialog, not a delay.
+            window.Opened += (_, _) => Scrappy.App.Update.UpdatePrompter.CheckOnStartup(window);
+
             // The last write must not depend on the user closing the window politely: a log-off or
             // a shut-down also has to land the current state on disk.
             desktop.Exit += (_, _) => _autosave?.Dispose();

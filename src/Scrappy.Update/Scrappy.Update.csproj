@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Scrappy.Update</RootNamespace>
+  </PropertyGroup>
+
+  <!--
+    No Avalonia, no FFmpeg, no windows: this project is the part of the update check that can be
+    exercised head-lessly. The dialog lives in Scrappy.App; everything that decides whether there
+    is anything to say lives here, so it can be tested without a display server.
+  -->
+
+</Project>

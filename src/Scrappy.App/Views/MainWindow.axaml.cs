@@ -274,6 +274,27 @@ public partial class MainWindow : Window
     private void OnApplyPreset(object? sender, Avalonia.Interactivity.RoutedEventArgs e) =>
         ViewModel?.ApplyQualityPreset();
 
+    /// <summary>
+    /// The manual update check. Reports the result in the status line, so a press that finds
+    /// nothing still answers - unlike the start-up check, which stays quiet on purpose.
+    /// </summary>
+    private async void OnCheckForUpdates(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        // async void, like every other button here: the prompter already catches its own
+        // failures, and this is the second line of defence for the ones it cannot see.
+        try
+        {
+            if (ViewModel is not null)
+            {
+                await Scrappy.App.Update.UpdatePrompter.CheckAsync(this, ViewModel.Report);
+            }
+        }
+        catch (Exception ex)
+        {
+            ViewModel?.Report($"Could not check for updates: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
     private void OnOpenSettings(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (ViewModel is null)

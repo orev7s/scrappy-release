@@ -33,6 +33,7 @@ return command switch
     "audio" => await AudioAsync(),
     "postmortem" => await PostmortemAsync(),
     "backlog" => await BacklogAsync(),
+    "update" => await UpdateChecks.RunAsync(),
     "decode" => await DecodeThroughputAsync(args.Length > 1 ? args[1] : Fixture("pattern-960x640.h264")),
     "all" => await AllAsync(),
     _ => Usage(),
@@ -53,9 +54,10 @@ async Task<int> AllAsync()
     int handshakeResult = await HandshakeAsync();
     int codecResult = await CodecAsync();
     int backlogResult = await BacklogAsync();
+    int updateResult = await UpdateChecks.RunAsync();
     return settingsResult == 0 && stateResult == 0 && discoveryResult == 0 && linksResult == 0 &&
            planResult == 0 && advisorResult == 0 && audioResult == 0 && postmortemResult == 0 && disconnectResult == 0 && pipelineResult == 0 &&
-           handshakeResult == 0 && codecResult == 0 && backlogResult == 0
+           handshakeResult == 0 && codecResult == 0 && backlogResult == 0 && updateResult == 0
         ? 0
         : 1;
 }
@@ -80,6 +82,7 @@ static int Usage()
                                  failure a wrong order must produce
           codec                  H.265 decodes even when the settings claimed H.264
           backlog                a receiver that cannot keep up skips, it does not lag
+          update                 version comparison, per-version suppression, silent failure
           decode [file.h264]     decode throughput of a file, informational
         """);
     return 2;

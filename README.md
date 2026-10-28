@@ -57,6 +57,18 @@ The status bar has four numbers that answer most questions: fps, Mbps, lag and d
 
 If the stream stops, the PC asks the tablet what it was doing and repeats the answer in the status line, instead of just saying the connection closed.
 
+## Updates
+
+Scrappy checks GitHub for a newer release when it starts, and there is a **Check for updates** button in the side panel for when you want to ask it yourself.
+
+If there is a newer release, Scrappy says so and asks what you want to do:
+
+- **Update** opens the release page on GitHub in your browser. You download and install it; Scrappy never downloads or installs anything for you.
+- **Skip update** closes the dialog. It may come back on a later launch.
+- **Don't show again** stops that one version from being offered. When a newer version is published, it is offered again.
+
+The check runs on its own task after the window is up, so it never delays start-up, and a machine that cannot reach GitHub sees nothing at all.
+
 ## Layout
 
 ```
@@ -67,6 +79,10 @@ tools/          schema generator, verification suite, synthetic test device
 docs/           wire format notes
 testdata/       a short H.264 clip used by the tests
 ```
+
+The update check is its own project, `src/Scrappy.Update`, so the part that decides whether to say
+anything can be tested without a window. `tools/update-e2e` drives the whole thing - dialog included -
+against a stand-in for the GitHub API.
 
 ## Build from source
 
@@ -85,7 +101,7 @@ cd android
 gradle assembleDebug
 ```
 
-`tools/Scrappy.Verify` runs without a tablet. It covers the handshake byte order, the decoder, discovery, the link classification, the cable sweep, session teardown and reconnection, the preset suggestion, and a congestion case where the receiver is deliberately slower than the sender.
+`tools/Scrappy.Verify` runs without a tablet. It covers the handshake byte order, the decoder, discovery, the link classification, the cable sweep, session teardown and reconnection, the preset suggestion, a congestion case where the receiver is deliberately slower than the sender, and the update check: version comparison, per-version suppression and what happens when the release API is down.
 
 ## Licence
 

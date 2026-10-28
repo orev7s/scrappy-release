@@ -138,6 +138,8 @@
             </StackPanel>
           </Border>
 
+          <Button Content="Check for updates" HorizontalAlignment="Stretch" Click="OnCheckForUpdates"
+                  ToolTip.Tip="Looks for a newer release on GitHub. Reports it; downloading and installing are yours." />
           <Button Content="All settings" HorizontalAlignment="Stretch" Click="OnOpenSettings" />
           <TextBlock Text="{Binding SettingsSummary}" Classes="muted" TextWrapping="Wrap" />
           <TextBlock Text="{Binding DeviceText}" Classes="muted" TextWrapping="Wrap" />

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Stands in for the desktop's URL handler, so an end-to-end run can prove the app handed the
+# release page to the operating system instead of downloading anything.
+printf '%s\n' "$*" >> "${FAKE_BROWSER_LOG:-/tmp/fake-browser.log}"
+exit 0

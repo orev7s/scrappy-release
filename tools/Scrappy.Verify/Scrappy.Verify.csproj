@@ -5,6 +5,7 @@
     <ProjectReference Include="..\..\src\Scrappy.Protocol\Scrappy.Protocol.csproj" />
     <ProjectReference Include="..\..\src\Scrappy.Settings\Scrappy.Settings.csproj" />
     <ProjectReference Include="..\..\src\Scrappy.Stream\Scrappy.Stream.csproj" />
+    <ProjectReference Include="..\..\src\Scrappy.Update\Scrappy.Update.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

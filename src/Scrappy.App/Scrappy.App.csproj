@@ -3,6 +3,11 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0</TargetFramework>
+    <!--
+      The number the update check compares against, and the number a release is tagged with.
+      One place, because a version written twice is a version that disagrees with itself.
+    -->
+    <Version>0.2.1</Version>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -35,6 +40,7 @@
     <ProjectReference Include="..\Scrappy.Protocol\Scrappy.Protocol.csproj" />
     <ProjectReference Include="..\Scrappy.Settings\Scrappy.Settings.csproj" />
     <ProjectReference Include="..\Scrappy.Stream\Scrappy.Stream.csproj" />
+    <ProjectReference Include="..\Scrappy.Update\Scrappy.Update.csproj" />
   </ItemGroup>
 
 </Project>

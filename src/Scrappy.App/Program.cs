@@ -56,6 +56,28 @@ internal sealed record AppOptions
     public string? DumpPath { get; init; }
 
     /// <summary>
+    /// Where the release check looks, instead of api.github.com. Lets a run be driven against a
+    /// local stand-in, so the dialog can be exercised and captured on a machine with no release
+    /// to offer. Development and evidence only.
+    /// </summary>
+    public string? UpdateApi { get; init; }
+
+    /// <summary>Pretends the running build is this version, so a stand-in can be "newer".</summary>
+    public string? UpdateVersion { get; init; }
+
+    /// <summary>Where the remembered "don't show again" lives. Tests only.</summary>
+    public string? UpdateStatePath { get; init; }
+
+    /// <summary>Saves what the update dialog actually shows here. Evidence only.</summary>
+    public string? UpdateShot { get; init; }
+
+    /// <summary>
+    /// Presses this button in the update dialog as soon as it opens: update, skip or never. Lets a
+    /// head-less run prove each of the three outcomes without a hand on the mouse.
+    /// </summary>
+    public string? UpdateAnswer { get; init; }
+
+    /// <summary>
     /// "1120x700" starts the window at a given size, so a screenshot can show the layout at the
     /// minimum size instead of only at the default one.
     /// </summary>
@@ -72,6 +94,11 @@ internal sealed record AppOptions
         string? shotFilter = null;
         var demoDevices = new List<string>();
         string? dump = null;
+        string? updateApi = null;
+        string? updateVersion = null;
+        string? updateState = null;
+        string? updateShot = null;
+        string? updateAnswer = null;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -108,6 +135,21 @@ internal sealed record AppOptions
                 case "--dump" when i + 1 < args.Length:
                     dump = args[++i];
                     break;
+                case "--update-api" when i + 1 < args.Length:
+                    updateApi = args[++i];
+                    break;
+                case "--update-version" when i + 1 < args.Length:
+                    updateVersion = args[++i];
+                    break;
+                case "--update-state" when i + 1 < args.Length:
+                    updateState = args[++i];
+                    break;
+                case "--update-shot" when i + 1 < args.Length:
+                    updateShot = args[++i];
+                    break;
+                case "--update-answer" when i + 1 < args.Length:
+                    updateAnswer = args[++i];
+                    break;
             }
         }
 
@@ -123,6 +165,11 @@ internal sealed record AppOptions
             DemoDevices = demoDevices,
             DumpPath = dump,
             WindowSize = windowSize,
+            UpdateApi = updateApi,
+            UpdateVersion = updateVersion,
+            UpdateStatePath = updateState,
+            UpdateShot = updateShot,
+            UpdateAnswer = updateAnswer,
         };
     }
 }
