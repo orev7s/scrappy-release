@@ -21,11 +21,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly DeviceDiscovery _discovery = new();
     private readonly StreamStats _stats = new();
     private readonly DispatcherTimer _ticker;
-    private readonly ObservableCollection<DiscoveredDevice> _devices = [];
+    private readonly ObservableCollection<DeviceChoice> _devices = [];
     private MirrorSession? _session;
     private Task? _runTask;
     private bool _syncingPresets;
-    private DiscoveredDevice? _selectedDevice;
+    private DeviceChoice? _selectedDevice;
     private bool _isScanning;
     private string _scanState = "No tablet found yet";
     private bool _scanned;
@@ -207,7 +207,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     // --- finding the tablet, so the address never has to be typed -------------------------
 
     /// <summary>Tablets that answered on this network, newest scan first.</summary>
-    public ObservableCollection<DiscoveredDevice> Devices => _devices;
+    public ObservableCollection<DeviceChoice> Devices => _devices;
 
     public bool HasDevices => _devices.Count > 0;
 
@@ -246,7 +246,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>The device the picker shows. Choosing one fills the address field.</summary>
-    public DiscoveredDevice? SelectedDevice
+    public DeviceChoice? SelectedDevice
     {
         get => _selectedDevice;
         set
@@ -322,14 +322,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     /// <summary>
     /// Replaces the list without losing the user's choice: the same tablet is re-selected if it is
-    /// still there, the remembered one is preferred over an arbitrary first entry, and a single
-    /// result is selected outright because there is nothing to choose between.
+    /// still there, the tablet the last session used is preferred over an arbitrary first entry, and
+    /// a single result is selected outright because there is nothing to choose between. The rule
+    /// itself lives in <see cref="DevicePreselect"/>, so it can be tested without a network.
+    ///
+    /// Selecting is all this does. Starting the stream stays a click, because a mirror that opens a
+    /// session by itself on launch is a surprise, and on a metered link an expensive one.
     /// </summary>
     private void MergeDevices(DiscoveryResult result)
     {
         IReadOnlyList<DiscoveredDevice> found = result.Devices;
-        string? previousKey = _selectedDevice?.Key ?? _state?.LastDeviceAddress;
-        string? previousAddress = _selectedDevice?.AddressText;
+        string? previousKey = _selectedDevice?.Key;
 
         _devices.Clear();
 
@@ -339,7 +342,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                      .OrderByDescending(d => d.IsWired)
                      .ThenBy(d => d.DisplayName, StringComparer.OrdinalIgnoreCase))
         {
-            _devices.Add(device);
+            _devices.Add(new DeviceChoice(device, IsRemembered(device)));
         }
 
         _wiredState = result.Wired;
@@ -355,34 +358,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             ShowAddressEntry = true;
         }
 
-        DiscoveredDevice? match =
-            found.FirstOrDefault(d => previousKey is not null && d.Key == previousKey) ??
-            found.FirstOrDefault(d => previousAddress is not null && d.AddressText == previousAddress);
+        DevicePreselect.Choice pick = DevicePreselect.Choose(found, previousKey, _state?.LastDeviceAddress);
 
-        if (match is null && found.Count == 1)
+        if (pick.Device is not null)
         {
-            match = found[0];
-        }
-
-        if (match is null)
-        {
-            // A cable that is present is the better default: no Wi-Fi contention, no router.
-            DiscoveredDevice[] wired = found.Where(d => d.IsWired).ToArray();
-            if (wired.Length == 1)
-            {
-                match = wired[0];
-            }
-        }
-
-        if (match is null && !string.IsNullOrWhiteSpace(Address))
-        {
-            // The remembered address is not in the list; keep showing it rather than clearing it.
-            match = found.FirstOrDefault(d => d.AddressText == Address);
-        }
-
-        if (match is not null)
-        {
-            SelectedDevice = match;
+            SelectedDevice = _devices.FirstOrDefault(d => d.Key == pick.Device.Key) ?? _devices.FirstOrDefault();
         }
         else if (_selectedDevice is not null)
         {
@@ -390,6 +370,24 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             // still want to retry it - but stop claiming it is in the list.
             _selectedDevice = null;
             Raise(nameof(SelectedDevice));
+        }
+    }
+
+    /// <summary>True when <paramref name="device"/> is the address the last session ran on.</summary>
+    private bool IsRemembered(DiscoveredDevice device) =>
+        _state?.LastDeviceAddress is { Length: > 0 } last &&
+        string.Equals(last, device.AddressText, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Re-marks the list after a session has started. The badge follows what actually ran, not what
+    /// was selected, so a device that was picked and then failed to connect is not labelled last
+    /// used.
+    /// </summary>
+    private void RefreshLastUsedFlags()
+    {
+        foreach (DeviceChoice choice in _devices)
+        {
+            choice.LastUsed = IsRemembered(choice.Device);
         }
     }
 
@@ -894,6 +892,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _state.LastDeviceName = _session.DeviceName;
             _state.LastDeviceAddress = $"{host}:{port}";
             _state.Flush();
+
+            // The picker now has a tablet it will preselect next launch; say so on the row.
+            RefreshLastUsedFlags();
         }
 
         if (_selectedDevice is null || _selectedDevice.AddressText != $"{host}:{port}")
@@ -1054,7 +1055,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     /// </summary>
     private string DescribeLink()
     {
-        DiscoveredDevice? device = _selectedDevice;
+        DiscoveredDevice? device = _selectedDevice?.Device;
 
         if (device is not null && device.IsWired)
         {

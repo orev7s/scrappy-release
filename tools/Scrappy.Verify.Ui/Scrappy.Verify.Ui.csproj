@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Scrappy.Verify.Ui</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The window is rendered by the same Skia pipeline the desktop build uses, on a platform
+         that reports no display. That is the only way to get real pixels in CI. -->
+    <PackageReference Include="Avalonia.Headless" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Skia" Version="11.3.22" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Scrappy.App\Scrappy.App.csproj" />
+    <ProjectReference Include="..\..\src\Scrappy.Discovery\Scrappy.Discovery.csproj" />
+    <ProjectReference Include="..\..\src\Scrappy.Settings\Scrappy.Settings.csproj" />
+  </ItemGroup>
+
+</Project>

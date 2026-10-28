@@ -4,6 +4,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Scrappy.App.ViewModels;
 using Scrappy.Discovery;
+using Scrappy.Settings;
 using Scrappy.Protocol;
 
 namespace Scrappy.App.Views;
@@ -13,15 +14,86 @@ public partial class MainWindow : Window
     private SyntheticDevice? _syntheticDevice;
     private StreamWindow? _streamWindow;
 
+    /// <summary>
+    /// The last frame the window had while it was not maximised. A maximised window's own frame is
+    /// the whole screen, so remembering that instead would leave a maximised-shaped window behind
+    /// when the next launch is not maximised.
+    /// </summary>
+    private WindowFrame? _lastNormalFrame;
+
     public MainWindow()
     {
         InitializeComponent();
 
         Opened += OnOpened;
         Closing += OnClosing;
+
+        // The data context is assigned before the window is shown, which is the only moment a
+        // geometry restore can happen without the user seeing the default size for a frame.
+        DataContextChanged += OnDataContextChanged;
+        PositionChanged += (_, _) => RememberNormalFrame();
+        PropertyChanged += OnWindowPropertyChanged;
     }
 
     private MainViewModel? ViewModel => DataContext as MainViewModel;
+
+    /// <summary>
+    /// Puts the window back where it was, as soon as there is a view model to ask - and before
+    /// anything is drawn. The clamp keeps a frame from an unplugged monitor visible.
+    /// </summary>
+    private void OnDataContextChanged(object? sender, EventArgs e)
+    {
+        if (ViewModel?.State?.Window is not { } saved)
+        {
+            return;
+        }
+
+        WindowFrame frame = WindowGeometry.Apply(this, saved);
+        if (frame.IsUsable)
+        {
+            _lastNormalFrame = frame;
+        }
+    }
+
+    private void OnWindowPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property == ClientSizeProperty || e.Property == WindowStateProperty)
+        {
+            RememberNormalFrame();
+        }
+    }
+
+    private void RememberNormalFrame()
+    {
+        if (WindowState != WindowState.Normal)
+        {
+            return;
+        }
+
+        WindowFrame frame = WindowGeometry.CurrentFrame(this);
+        if (frame.IsUsable)
+        {
+            _lastNormalFrame = frame;
+        }
+    }
+
+    /// <summary>
+    /// Records the frame to restore next launch. Cheap: the store debounces the write, and the last
+    /// flush happens in <see cref="MainViewModel.Dispose"/> a few lines later.
+    /// </summary>
+    private void RememberGeometry()
+    {
+        if (ViewModel?.State is not { } state)
+        {
+            return;
+        }
+
+        WindowPlacement placement = WindowGeometry.Capture(this, _lastNormalFrame);
+        if (placement.IsUsable)
+        {
+            state.Window = placement;
+        }
+    }
 
     private void OnOpened(object? sender, EventArgs e)
     {
@@ -291,6 +363,8 @@ public partial class MainWindow : Window
 
     private void OnClosing(object? sender, WindowClosingEventArgs e)
     {
+        // Before Dispose: Dispose flushes the store, and the frame has to be in it by then.
+        RememberGeometry();
         ViewModel?.Dispose();
         _syntheticDevice?.DisposeAsync().AsTask().Wait(300);
     }

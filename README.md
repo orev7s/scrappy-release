@@ -14,6 +14,8 @@ The aim is a mirror that feels like a monitor cable. Low latency, steady frame r
 - the tablet's sound on the PC as well, so a capture program can take it
 - the full scrcpy option set in the settings, saved automatically
 - a live lag figure, so a weak link is visible instead of mysterious
+- the window comes back at the size and place you left it, clamped to the screens you have now
+- the tablet from the last session is picked out of the list for you, marked **last used**
 
 ## Requirements
 
@@ -86,6 +88,8 @@ gradle assembleDebug
 ```
 
 `tools/Scrappy.Verify` runs without a tablet. It covers the handshake byte order, the decoder, discovery, the link classification, the cable sweep, session teardown and reconnection, the preset suggestion, and a congestion case where the receiver is deliberately slower than the sender.
+
+`tools/Scrappy.Verify.Ui` checks the parts of the window that the other suite cannot reach: it renders the real `MainWindow` with headless Skia, so `dotnet run --project tools/Scrappy.Verify.Ui -- all artifacts/ux` leaves PNGs that show the window as it is actually painted.
 
 ## Licence
 
