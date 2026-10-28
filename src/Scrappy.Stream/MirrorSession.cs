@@ -22,7 +22,8 @@ public sealed record MirrorOptions
     public bool LowLatency { get; init; }
 
     /// <summary>
-    /// Socket receive buffer. 0 takes <see cref="MirrorSession.DefaultReceiveBufferBytes"/>.
+    /// Socket receive buffer. 0 takes <see cref="ReceiveBufferBytesFor"/>, which is the latency
+    /// budget and not a fixed number.
     ///
     /// Left to the operating system this can autotune to several megabytes, which on a tablet
     /// pushing 12 Mbps is seconds of video the PC has already accepted and cannot take back. The
@@ -87,8 +88,18 @@ public sealed class MirrorSession : IAsyncDisposable
     private bool _skipping;
     private AudioSession? _audio;
 
-    /// <summary>One megabyte: enough for a Wi-Fi jitter burst at these rates, not a backlog.</summary>
-    public const int DefaultReceiveBufferBytes = 1 << 20;
+    /// <summary>
+    /// Smallest receive buffer worth setting: a twelfth of a second at 8 Mbps, and roughly ten
+    /// times the bandwidth-delay product of a 12 Mbps link at 30 ms. Below this the socket stops
+    /// absorbing jitter and starts limiting throughput, which is a different bug.
+    /// </summary>
+    public const int MinReceiveBufferBytes = 128 * 1024;
+
+    /// <summary>
+    /// Largest receive buffer a session will set. A cap is still needed for a caller who asks for
+    /// a multi-second backlog on purpose.
+    /// </summary>
+    public const int MaxReceiveBufferBytes = 1 << 20;
 
     private MirrorSession(
         TcpClient client,
@@ -158,7 +169,7 @@ public sealed class MirrorSession : IAsyncDisposable
         var client = new TcpClient { NoDelay = true };
         client.ReceiveBufferSize = options.ReceiveBufferBytes > 0
             ? options.ReceiveBufferBytes
-            : DefaultReceiveBufferBytes;
+            : ReceiveBufferBytesFor(options);
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(options.ConnectTimeoutMs);
@@ -225,16 +236,31 @@ public sealed class MirrorSession : IAsyncDisposable
         return Math.Clamp((long)(bitrate / 8.0 * seconds), 96 * 1024, 4 * 1024 * 1024);
     }
 
-    /// <summary>The TCP socket underneath, for the one thing a stream reader cannot know: backlog.</summary>
     /// <summary>
-    /// Bytes per second the link is carrying, for turning a backlog into milliseconds. The measured
-    /// rate is used once there is one; until then the requested bitrate is the honest guess.
+    /// The receive buffer for a session: the same latency budget the skip policy works to,
+    /// expressed in bytes.
+    ///
+    /// A flat buffer is what let the lag grow. Skipping happens when the socket is already over
+    /// budget, so a 1 MB buffer at 4 Mbps is two seconds of video the PC has accepted and cannot
+    /// throw away before reading it - the peak lag is set by the buffer, not by the policy, and the
+    /// policy only ever sees the backlog after it has happened. Measured at 2097 ms of video with
+    /// the old constant; the peer's own send buffer (128 KB, MirrorServer.kt) is the other half of
+    /// the same budget.
     /// </summary>
-    private double BytesPerSecond()
-    {
-        double measured = Stats.MegabitsPerSecond * 1_000_000 / 8;
-        return measured > 0 ? measured : _assumedBytesPerSecond;
-    }
+    public static int ReceiveBufferBytesFor(MirrorOptions options) =>
+        (int)Math.Clamp(2 * BacklogBudget(options), MinReceiveBufferBytes, MaxReceiveBufferBytes);
+
+    /// <summary>
+    /// Bytes per second of <em>video</em>, for turning a backlog into milliseconds.
+    ///
+    /// This is the bitrate the tablet was asked for, and it is deliberately not the measured
+    /// throughput. The measured figure is what the socket happened to deliver in the last second,
+    /// which for a receiver that cannot keep up is the receiver's own speed: dividing a backlog by
+    /// it reports a queue that shrinks as the machine gets slower. The same number also decides the
+    /// byte budget in <see cref="BacklogBudget"/>, so measuring the delay against anything else
+    /// means the policy and the number on screen disagree.
+    /// </summary>
+    private double BytesPerSecond() => _assumedBytesPerSecond;
 
     private long BacklogBytes()
     {
