@@ -407,15 +407,6 @@ public sealed class MirrorSession : IAsyncDisposable
                 }
             }
 
-            // The decoder may still hold frames, especially with frame threading on. Drain before
-            // calling the session over, or the tail of the stream is silently lost.
-            long flushArrival = Stopwatch.GetTimestamp();
-            _decoder.Flush(frame =>
-            {
-                Stats.OnFrameDecoded(Stopwatch.GetElapsedTime(flushArrival).TotalMilliseconds);
-                _presenter.Present(frame);
-            });
-
             reason = "the device closed the stream";
         }
         catch (OperationCanceledException) when (linked.IsCancellationRequested)
@@ -438,6 +429,17 @@ public sealed class MirrorSession : IAsyncDisposable
         }
         finally
         {
+            // The decoder still holds frames at this point, whatever ended the loop: with frame
+            // threading on it keeps one picture per worker thread. Draining here rather than on the
+            // happy path is the difference between losing the last 14 frames of a stream and not -
+            // a socket that resets (a tablet that was killed, Wi-Fi that went away) ends the loop in
+            // the catch above, not in a clean end of stream, and that is exactly when the tail is
+            // worth having. A stopped session is the one case where nobody is watching.
+            if (!_abort.IsCancellationRequested)
+            {
+                DrainDecoder();
+            }
+
             if (_audio is not null)
             {
                 await _audio.DisposeAsync().ConfigureAwait(false);
@@ -450,6 +452,30 @@ public sealed class MirrorSession : IAsyncDisposable
             {
                 _presenter.OnSessionEnded(reason);
             }
+        }
+    }
+
+    /// <summary>
+    /// Pulls the frames the decoder is still holding and presents them. Never replaces the reason
+    /// the session ended: the tail of a stream is a bonus, not a diagnosis.
+    /// </summary>
+    private void DrainDecoder()
+    {
+        long flushArrival = Stopwatch.GetTimestamp();
+
+        try
+        {
+            _decoder.Flush(frame =>
+            {
+                Stats.OnFrameDecoded(Stopwatch.GetElapsedTime(flushArrival).TotalMilliseconds);
+                _presenter.Present(frame);
+            });
+        }
+        catch (Exception ex) when (ex is DecodeException or ObjectDisposedException)
+        {
+            // The decoder or the window is already gone. The frames are lost either way; the
+            // message the user sees should not change because of it.
+            Stats.OnDecodeError();
         }
     }
 
