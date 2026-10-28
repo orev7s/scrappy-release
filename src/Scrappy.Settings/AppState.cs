@@ -53,9 +53,76 @@ public sealed class AppStateFile
     [JsonPropertyName("audioDevice")]
     public string AudioDevice { get; set; } = "";
 
+    /// <summary>
+    /// Where the window was last seen. Optional: a v1 file has no such section, and a build that
+    /// predates it ignores the property, so adding it changes nothing for either side. Null means
+    /// "never saved", which is not the same as 0,0,0,0 and must not be treated as a position.
+    /// </summary>
+    [JsonPropertyName("window")]
+    public WindowPlacement? Window { get; set; }
+
     /// <summary>Informational: when this file was last written. Never used to decide anything.</summary>
     [JsonPropertyName("savedUtc")]
     public DateTime SavedUtc { get; set; }
+}
+
+/// <summary>
+/// The last window frame, in device-independent pixels: the same units Avalonia's
+/// <c>Window.Width</c>, <c>Window.Height</c> and <c>Bounds</c> use, so a 150% display and a 100%
+/// display round-trip through it unchanged.
+///
+/// This is a separate type rather than four loose properties on <see cref="AppStateFile"/> so that
+/// "there is no remembered frame" is one nullable thing instead of four numbers that have to be
+/// checked for being zero, and so the geometry code can be tested without a settings store.
+/// </summary>
+public sealed class WindowPlacement
+{
+    [JsonPropertyName("left")]
+    public double Left { get; set; }
+
+    [JsonPropertyName("top")]
+    public double Top { get; set; }
+
+    [JsonPropertyName("width")]
+    public double Width { get; set; }
+
+    [JsonPropertyName("height")]
+    public double Height { get; set; }
+
+    /// <summary>
+    /// True when the window was maximised. The frame above is then the last *normal* frame, so
+    /// un-maximising after a restart returns the window to the size it had before it was maximised.
+    /// </summary>
+    [JsonPropertyName("maximised")]
+    public bool Maximised { get; set; }
+
+    /// <summary>
+    /// A frame worth restoring: real numbers, and a size big enough to be a window. Anything else
+    /// (a hand-edited file, a half-written one) is treated as "nothing remembered" rather than
+    /// being clamped into a 1x1 window the user cannot resize back.
+    /// </summary>
+    [JsonIgnore]
+    public bool IsUsable =>
+        double.IsFinite(Left) && double.IsFinite(Top) &&
+        double.IsFinite(Width) && double.IsFinite(Height) &&
+        Width >= 1 && Height >= 1;
+
+    public WindowPlacement Clone() => new()
+    {
+        Left = Left,
+        Top = Top,
+        Width = Width,
+        Height = Height,
+        Maximised = Maximised,
+    };
+
+    public bool SameAs(WindowPlacement? other) =>
+        other is not null &&
+        other.Left.Equals(Left) &&
+        other.Top.Equals(Top) &&
+        other.Width.Equals(Width) &&
+        other.Height.Equals(Height) &&
+        other.Maximised == Maximised;
 }
 
 /// <summary>What <see cref="AppStateStore.Load"/> found.</summary>
@@ -147,6 +214,15 @@ public sealed class AppStateStore
             state.RawArguments ??= "";
             state.AudioDevice ??= "";
             state.AudioVolume = Math.Clamp(state.AudioVolume, 0, 100);
+
+            // A frame that cannot be a window is dropped here, once, so every caller downstream can
+            // treat a non-null Window as usable. That also keeps the clamp in the UI from having to
+            // reason about NaN.
+            if (state.Window is not null && !state.Window.IsUsable)
+            {
+                state.Window = null;
+            }
+
             return new LoadedState(state, Existed: true, Problem: null);
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException or NotSupportedException)
@@ -237,6 +313,7 @@ public sealed class AppStateAutosave : IDisposable
     private string _audioDevice = "";
     private string? _lastDeviceName;
     private string? _lastDeviceAddress;
+    private WindowPlacement? _window;
     private bool _pending;
     private bool _disposed;
 
@@ -354,6 +431,26 @@ public sealed class AppStateAutosave : IDisposable
         }
     }
 
+    /// <summary>
+    /// The window frame to restore on the next launch. Written whenever the window moves or
+    /// resizes, coalesced by the same debounce as everything else, so dragging a window does not
+    /// write the file sixty times a second.
+    /// </summary>
+    public WindowPlacement? Window
+    {
+        get => _window;
+        set
+        {
+            if (value is null ? _window is null : value.SameAs(_window))
+            {
+                return;
+            }
+
+            _window = value?.Clone();
+            Schedule();
+        }
+    }
+
     /// <summary>Applies a loaded state. Does not schedule a save: nothing has changed yet.</summary>
     public void Restore(LoadedState loaded)
     {
@@ -363,6 +460,7 @@ public sealed class AppStateAutosave : IDisposable
         _audioDevice = loaded.State.AudioDevice ?? "";
         _lastDeviceName = loaded.State.LastDeviceName;
         _lastDeviceAddress = loaded.State.LastDeviceAddress;
+        _window = loaded.State.Window?.Clone();
     }
 
     /// <summary>The values a save would write right now.</summary>
@@ -374,6 +472,7 @@ public sealed class AppStateAutosave : IDisposable
         AudioDevice = _audioDevice,
         LastDeviceName = _lastDeviceName,
         LastDeviceAddress = _lastDeviceAddress,
+        Window = _window?.Clone(),
         Options = _settings.ToProfileValues(),
         RawArguments = _settings.RawArguments,
     };
