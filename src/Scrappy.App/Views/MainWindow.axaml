@@ -25,7 +25,12 @@
             <ComboBox.ItemTemplate>
               <DataTemplate>
                 <StackPanel Margin="0,2">
-                  <TextBlock Text="{Binding DisplayName}" />
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center" />
+                    <!-- Only the tablet the last session ran on carries this. -->
+                    <TextBlock Text="last used" Classes="muted" FontSize="11" VerticalAlignment="Center"
+                               IsVisible="{Binding LastUsed}" />
+                  </StackPanel>
                   <TextBlock Text="{Binding Detail}" Classes="muted" FontSize="11" />
                 </StackPanel>
               </DataTemplate>
