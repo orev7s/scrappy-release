@@ -81,14 +81,23 @@ public sealed class MirrorSession : IAsyncDisposable
     private readonly long _backlogBudgetBytes;
     private readonly double _assumedBytesPerSecond;
     private readonly MirrorOptions _options;
+    private readonly int _receiveBufferBytes;
     private int _ended;
     private int _disposed;
     private int _transportClosed;
     private bool _skipping;
     private AudioSession? _audio;
 
-    /// <summary>One megabyte: enough for a Wi-Fi jitter burst at these rates, not a backlog.</summary>
+    /// <summary>One megabyte: the most video this machine will ever accept ahead of time.</summary>
     public const int DefaultReceiveBufferBytes = 1 << 20;
+
+    /// <summary>
+    /// A quarter of a megabyte: the smallest socket buffer worth asking for. Below it the receive
+    /// window starves the link - measured on loopback, a 1500-frame burst arrives at a third of
+    /// the rate at 192 KB than at 256 KB, so the receiver ends up waiting for bytes instead of
+    /// choosing what to do with them.
+    /// </summary>
+    public const int MinimumReceiveBufferBytes = 256 * 1024;
 
     private MirrorSession(
         TcpClient client,
@@ -98,8 +107,10 @@ public sealed class MirrorSession : IAsyncDisposable
         MirrorOptions options,
         StreamStats stats,
         string host,
-        int port)
+        int port,
+        int receiveBufferBytes)
     {
+        _receiveBufferBytes = receiveBufferBytes;
         _host = host;
         _port = port;
         _options = options;
@@ -136,6 +147,13 @@ public sealed class MirrorSession : IAsyncDisposable
 
     public int Port => _port;
 
+    /// <summary>
+    /// Socket receive buffer this session asked for, in bytes. The kernel is free to round it, so
+    /// this is the request rather than a guarantee - but it is the ceiling on how much video can
+    /// be in flight towards this machine, and therefore on how late the picture can be.
+    /// </summary>
+    public int ReceiveBufferBytes => _receiveBufferBytes;
+
     public StreamStats Stats { get; }
 
     /// <summary>Audio counters, or null when no audio was requested. Never fails a session.</summary>
@@ -156,9 +174,8 @@ public sealed class MirrorSession : IAsyncDisposable
         options ??= new MirrorOptions();
 
         var client = new TcpClient { NoDelay = true };
-        client.ReceiveBufferSize = options.ReceiveBufferBytes > 0
-            ? options.ReceiveBufferBytes
-            : DefaultReceiveBufferBytes;
+        int receiveBuffer = ReceiveBufferFor(options);
+        client.ReceiveBufferSize = receiveBuffer;
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(options.ConnectTimeoutMs);
@@ -211,7 +228,33 @@ public sealed class MirrorSession : IAsyncDisposable
         }
 
         return new MirrorSession(
-            client, stream, deviceName, presenter, options, stats ?? new StreamStats(), host, port);
+            client, stream, deviceName, presenter, options, stats ?? new StreamStats(), host, port, receiveBuffer);
+    }
+
+    /// <summary>
+    /// How much video the socket may hold, in bytes.
+    ///
+    /// This is the backlog budget, not a constant: a socket buffer is the only backpressure a TCP
+    /// receiver has. Whatever the kernel is willing to accept has already been paid for - it is
+    /// video this machine has taken delivery of and cannot give back, and skipping it later costs
+    /// the frames without buying the latency back. Sizing the buffer from the latency budget makes
+    /// the sender wait instead of making the receiver late.
+    ///
+    /// An explicit <see cref="MirrorOptions.ReceiveBufferBytes"/> always wins: it is the knob for
+    /// someone who has measured their link and disagrees.
+    /// </summary>
+    private static int ReceiveBufferFor(MirrorOptions options)
+    {
+        if (options.ReceiveBufferBytes > 0)
+        {
+            return options.ReceiveBufferBytes;
+        }
+
+        // A quarter over the budget, so a burst that lands exactly on it is not clipped mid-frame
+        // and the skip logic still has something to do.
+        long budget = BacklogBudget(options);
+        long withHeadroom = budget + (budget / 4);
+        return (int)Math.Clamp(withHeadroom, MinimumReceiveBufferBytes, DefaultReceiveBufferBytes);
     }
 
     /// <summary>

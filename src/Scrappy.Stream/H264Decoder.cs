@@ -32,6 +32,15 @@ public sealed unsafe class H264Decoder : IDisposable
     private int _scalerSourceWidth;
     private int _scalerSourceHeight;
     private byte[]? _extradata;
+
+    // sws_scale's managed binding takes arrays of plane pointers and strides. They are reused
+    // across frames rather than rebuilt: at 60 fps four arrays a frame is 240 allocations a
+    // second of pure scaffolding, and the decoder is single-threaded by construction.
+    private byte*[] _sourcePlanes = new byte*[4];
+    private int[] _sourceStrides = new int[4];
+    private byte*[] _destinationPlanes = new byte*[4];
+    private int[] _destinationStrides = new int[4];
+
     private bool _switched;
     private bool _disposed;
     private bool _awaitingKeyFrame;
@@ -203,7 +212,7 @@ public sealed unsafe class H264Decoder : IDisposable
             _awaitingKeyFrame = false;
         }
 
-        if (AnnexB.FindStartCodes(accessUnit).Count == 0)
+        if (!HasStartCode(accessUnit))
         {
             ConsecutiveRejects++;
             throw new DecodeException(
@@ -324,15 +333,30 @@ public sealed unsafe class H264Decoder : IDisposable
         fixed (byte* destination = frame.Pixels)
         {
             // FFmpeg.AutoGen's 4.4 binding takes managed arrays of plane pointers and strides.
-            byte*[] sourcePlanes = [source->data[0], source->data[1], source->data[2], source->data[3]];
-            int[] sourceStrides = [source->linesize[0], source->linesize[1], source->linesize[2], source->linesize[3]];
-            byte*[] destinationPlanes = [destination, null, null, null];
-            int[] destinationStrides = [frame.Stride, 0, 0, 0];
+            _sourcePlanes[0] = source->data[0];
+            _sourcePlanes[1] = source->data[1];
+            _sourcePlanes[2] = source->data[2];
+            _sourcePlanes[3] = source->data[3];
+
+            _sourceStrides[0] = source->linesize[0];
+            _sourceStrides[1] = source->linesize[1];
+            _sourceStrides[2] = source->linesize[2];
+            _sourceStrides[3] = source->linesize[3];
+
+            _destinationPlanes[0] = destination;
+            _destinationPlanes[1] = null;
+            _destinationPlanes[2] = null;
+            _destinationPlanes[3] = null;
+
+            _destinationStrides[0] = frame.Stride;
+            _destinationStrides[1] = 0;
+            _destinationStrides[2] = 0;
+            _destinationStrides[3] = 0;
 
             ffmpeg.sws_scale(
                 _scaler,
-                sourcePlanes, sourceStrides, 0, height,
-                destinationPlanes, destinationStrides);
+                _sourcePlanes, _sourceStrides, 0, height,
+                _destinationPlanes, _destinationStrides);
         }
 
         return frame;
@@ -508,6 +532,28 @@ public sealed unsafe class H264Decoder : IDisposable
         }
 
         return types.Count == 0 ? "none found" : string.Join(", ", types);
+    }
+
+    /// <summary>
+    /// True when <paramref name="data"/> contains at least one Annex-B start code.
+    ///
+    /// This runs on every access unit, so it stops at the first start code instead of collecting
+    /// them all: a 2560x1708 keyframe is hundreds of kilobytes, and walking all of it - plus the
+    /// list to hold the offsets - to answer a yes/no question is work paid sixty times a second.
+    /// The first start code is at offset 0 in every stream this receives, so the common case is
+    /// three comparisons.
+    /// </summary>
+    public static bool HasStartCode(ReadOnlySpan<byte> data)
+    {
+        for (int i = 0; i + 3 < data.Length; i++)
+        {
+            if (data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static string NormaliseHint(string hint) => hint.ToLowerInvariant() switch
