@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using Scrappy.App.Updates;
 using Scrappy.App.ViewModels;
 using Scrappy.App.Views;
 using Scrappy.Settings;
@@ -70,6 +71,13 @@ public sealed class ScrappyApp : Application
             };
 
             desktop.MainWindow = window;
+
+            // After the window is up, off the UI thread, and silent about every failure: a newer
+            // release is a notification, not a startup step.
+            if (!Program.Options.NoUpdateCheck)
+            {
+                UpdateStartup.Start(window);
+            }
 
             // The last write must not depend on the user closing the window politely: a log-off or
             // a shut-down also has to land the current state on disk.

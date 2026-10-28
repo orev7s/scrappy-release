@@ -39,6 +39,9 @@ internal sealed record AppOptions
 
     public bool AutoStart { get; init; }
 
+    /// <summary>Turns the startup release check off. For screenshots and for an offline demo.</summary>
+    public bool NoUpdateCheck { get; init; }
+
     public string? ScreenshotPath { get; init; }
 
     public int ScreenshotDelayMs { get; init; } = 1600;
@@ -65,7 +68,7 @@ internal sealed record AppOptions
     {
         string? address = null;
         string? windowSize = null;
-        bool demo = false, autoStart = false;
+        bool demo = false, autoStart = false, noUpdateCheck = false;
         string? screenshot = null;
         int delay = 1600;
         bool shotSettings = false;
@@ -86,6 +89,9 @@ internal sealed record AppOptions
                     break;
                 case "--autostart":
                     autoStart = true;
+                    break;
+                case "--no-update-check":
+                    noUpdateCheck = true;
                     break;
                 case "--shot" when i + 1 < args.Length:
                     screenshot = args[++i];
@@ -116,6 +122,7 @@ internal sealed record AppOptions
             Address = address,
             Demo = demo,
             AutoStart = autoStart || screenshot is not null,
+            NoUpdateCheck = noUpdateCheck,
             ScreenshotPath = screenshot,
             ScreenshotDelayMs = delay,
             ShotSettings = shotSettings,
