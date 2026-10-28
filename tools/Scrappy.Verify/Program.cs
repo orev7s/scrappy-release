@@ -1647,6 +1647,14 @@ async Task<int> PostmortemAsync()
         {
             failures.Add($"the tablet's own error was not repeated: '{explained}'");
         }
+
+        // The explanation can only be judged if the PC actually asked. Before this check existed,
+        // a silent probe produced "the tablet is not answering on port N" for a tablet that was
+        // answering, and nothing in the output said so.
+        if (failed.RequestsRead == 0 || !(failed.LastRequestLine ?? "").Contains("/status", StringComparison.Ordinal))
+        {
+            failures.Add("the PC never sent a status request to a tablet that was listening");
+        }
     }
 
     // A tablet that went straight back to listening has nothing to say, and saying so is the point.
@@ -1661,6 +1669,11 @@ async Task<int> PostmortemAsync()
         if (!explained.Contains("Waiting for the PC", StringComparison.Ordinal))
         {
             failures.Add($"a tablet back to listening was not described as such: '{explained}'");
+        }
+
+        if (listening.RequestsRead == 0)
+        {
+            failures.Add("the PC never sent a status request to a tablet that had gone back to listening");
         }
     }
 
@@ -1771,12 +1784,25 @@ static string FindRepositoryRoot()
     return Directory.GetCurrentDirectory();
 }
 
-/// <summary>A one-endpoint stand-in for the tablet's /status, for the explanation tests.</summary>
+/// <summary>
+/// A one-endpoint stand-in for the tablet's /status, for the explanation tests.
+///
+/// It reads the request line before it answers, because that is what the tablet does:
+/// MirrorServer.readFirstLine (android/.../MirrorServer.kt:116) waits up to 800 ms for one line and
+/// only then hands the socket to StatusServer.respond. A stand-in that answers without reading is
+/// not a tablet: it closes its read side while the PC's GET is still in flight, the PC's write is
+/// reset, and the probe honestly reports a device that is gone. That was the whole of the
+/// "classification is lost" bug on the PC side - the report was right, the fake device was lying.
+/// </summary>
 sealed class StatusResponder : IDisposable
 {
+    /// <summary>How long the tablet waits for a request line (MirrorServer.FIRST_LINE_TIMEOUT_MS).</summary>
+    private const int FirstLineTimeoutMs = 800;
+
     private readonly TcpListener _listener;
     private readonly string _body;
     private readonly CancellationTokenSource _stop = new();
+    private int _requestsRead;
 
     public StatusResponder(string body)
     {
@@ -1787,6 +1813,12 @@ sealed class StatusResponder : IDisposable
     }
 
     public int Port => ((IPEndPoint)_listener.LocalEndpoint).Port;
+
+    /// <summary>The first line of the last request that arrived, so a test can prove one did.</summary>
+    public string? LastRequestLine { get; private set; }
+
+    /// <summary>How many complete request lines have been read.</summary>
+    public int RequestsRead => Volatile.Read(ref _requestsRead);
 
     private async Task ServeAsync()
     {
@@ -1808,6 +1840,16 @@ sealed class StatusResponder : IDisposable
                 {
                     try
                     {
+                        string? requestLine = await ReadFirstLineAsync(client).ConfigureAwait(false);
+                        if (requestLine is null)
+                        {
+                            // A connection that says nothing gets nothing, exactly as on the tablet.
+                            return;
+                        }
+
+                        LastRequestLine = requestLine;
+                        Interlocked.Increment(ref _requestsRead);
+
                         byte[] response = Encoding.UTF8.GetBytes(
                             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n" +
                             $"Content-Length: {Encoding.UTF8.GetByteCount(_body)}\r\nConnection: close\r\n\r\n{_body}");
@@ -1821,6 +1863,41 @@ sealed class StatusResponder : IDisposable
                 }
             });
         }
+    }
+
+    /// <summary>One line, or null when the peer said nothing within the tablet's own timeout.</summary>
+    private async Task<string?> ReadFirstLineAsync(TcpClient client)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token);
+        timeout.CancelAfter(FirstLineTimeoutMs);
+
+        NetworkStream stream = client.GetStream();
+        var line = new StringBuilder();
+        byte[] one = new byte[1];
+
+        try
+        {
+            while (line.Length < 1024)
+            {
+                if (await stream.ReadAsync(one, timeout.Token).ConfigureAwait(false) == 0)
+                {
+                    return null;
+                }
+
+                if (one[0] == (byte)'\n')
+                {
+                    return line.ToString().TrimEnd('\r');
+                }
+
+                line.Append((char)one[0]);
+            }
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or IOException)
+        {
+            return null;
+        }
+
+        return line.ToString();
     }
 
     public void Dispose()
