@@ -10,6 +10,9 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
     <RootNamespace>Scrappy.App</RootNamespace>
+    <!-- The running version, read back by Updates/AppVersion.cs. Bump this and the update check
+         knows what it is; there is no second copy in code. -->
+    <Version>0.2.1</Version>
   </PropertyGroup>
 
   <ItemGroup>
