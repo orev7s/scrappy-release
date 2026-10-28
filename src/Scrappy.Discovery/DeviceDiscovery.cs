@@ -186,11 +186,19 @@ public sealed class DeviceDiscovery
     public const string ProbeMessage = "SCRAPPY_DISCOVER";
 
     /// <summary>Where the probe is sent: the limited broadcast plus each interface's own broadcast.</summary>
-    public static IEnumerable<IPEndPoint> BroadcastTargets()
+    public static IEnumerable<IPEndPoint> BroadcastTargets() => BroadcastTargets(LinkMap.Read());
+
+    /// <summary>
+    /// The same targets, from a link map the caller already read. <see cref="LinkMap.Read"/> walks
+    /// every interface on the machine, and a scan needs the map anyway, so reading it twice - once
+    /// here, once in the caller - is pure duplicated work on the path between clicking Scan and the
+    /// first datagram leaving the socket.
+    /// </summary>
+    public static IEnumerable<IPEndPoint> BroadcastTargets(LinkMap links)
     {
         yield return new IPEndPoint(IPAddress.Broadcast, DiscoveryPort);
 
-        foreach (LinkMap.Link link in LinkMap.Read().Links)
+        foreach (LinkMap.Link link in links.Links)
         {
             byte[]? broadcast = LinkMap.BroadcastOf(link);
             if (broadcast is null)
@@ -362,7 +370,7 @@ public sealed class DeviceDiscovery
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(window);
 
-        foreach (IPEndPoint target in BroadcastTargets())
+        foreach (IPEndPoint target in BroadcastTargets(links))
         {
             try
             {
