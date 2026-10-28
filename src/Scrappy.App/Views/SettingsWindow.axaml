@@ -1,0 +1,83 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Scrappy.App.Views.SettingsWindow"
+        Title="Settings"
+        Width="940" Height="660"
+        MinWidth="720" MinHeight="480"
+        WindowStartupLocation="CenterOwner">
+
+  <Grid RowDefinitions="Auto,Auto,*,Auto">
+
+    <!-- Find one option out of all of them. -->
+    <Grid Grid.Row="0" ColumnDefinitions="*,150,Auto" Margin="14,14,14,8">
+      <TextBox Text="{Binding Search}" Watermark="Search options, e.g. bitrate" />
+      <ComboBox Grid.Column="1" Margin="8,0,0,0" ItemsSource="{Binding Groups}"
+                SelectedItem="{Binding SelectedGroup}" />
+      <StackPanel Grid.Column="2" Margin="12,0,0,0" VerticalAlignment="Center">
+        <CheckBox Content="Show every option" IsChecked="{Binding ShowAdvanced}" FontSize="12" />
+        <TextBlock Text="{Binding ScopeLabel}" Classes="muted" />
+      </StackPanel>
+    </Grid>
+
+    <!-- Profiles: the same settings, saved under a name. -->
+    <Grid Grid.Row="1" ColumnDefinitions="*,150,Auto,Auto,Auto,Auto" Margin="14,0,14,10">
+      <ComboBox ItemsSource="{Binding Profiles}" SelectedItem="{Binding SelectedProfile}"
+                PlaceholderText="Saved profiles" />
+      <TextBox Grid.Column="1" Margin="8,0,0,0" Text="{Binding ProfileName}" Watermark="Name" />
+      <Button Grid.Column="2" Margin="8,0,0,0" Content="Save" Click="OnSaveProfile" />
+      <Button Grid.Column="3" Margin="6,0,0,0" Content="Apply" Click="OnApplyProfile" />
+      <Button Grid.Column="4" Margin="6,0,0,0" Content="Delete" Click="OnDeleteProfile" />
+      <Button Grid.Column="5" Margin="6,0,0,0" Content="Reset" Click="OnReset" />
+    </Grid>
+
+    <!-- The list. Flag name first, because that is what upstream documentation calls it. -->
+    <Border Grid.Row="2" Margin="14,0" Background="{StaticResource SurfaceBrush}"
+            BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="4">
+      <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <ItemsControl ItemsSource="{Binding Rows}" Margin="10,8">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate>
+              <Grid ColumnDefinitions="300,*,72,88" Height="48">
+                <StackPanel VerticalAlignment="Center" Margin="0,0,10,0">
+                  <TextBlock Text="{Binding Flag}" Classes="mono" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Text="{Binding Explanation}" Classes="muted" FontSize="11"
+                             TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Explanation}" />
+                </StackPanel>
+
+                <Panel Grid.Column="1" Margin="8,0">
+                  <CheckBox IsVisible="{Binding ShowCheckbox}" IsChecked="{Binding IsSet}"
+                            ToolTip.Tip="{Binding Hint}" />
+                  <ComboBox IsVisible="{Binding ShowCombo}" ItemsSource="{Binding Choices}"
+                            SelectedItem="{Binding SelectedChoice}" FontSize="12" MinHeight="26"
+                            PlaceholderText="default" />
+                  <TextBox IsVisible="{Binding ShowText}" Text="{Binding Value}"
+                           Watermark="{Binding ArgumentHint}" FontSize="12" MinHeight="26"
+                           ToolTip.Tip="{Binding Hint}" />
+                  <TextBlock IsVisible="{Binding IsLocked}" Text="{Binding Value}" Classes="muted"
+                             VerticalAlignment="Center" ToolTip.Tip="{Binding Hint}" />
+                </Panel>
+
+                <TextBlock Grid.Column="2" Text="{Binding Group}" Classes="muted"
+                           VerticalAlignment="Center" HorizontalAlignment="Right" />
+                <TextBlock Grid.Column="3" Text="{Binding StateText}" Classes="muted"
+                           VerticalAlignment="Center" HorizontalAlignment="Right"
+                           TextTrimming="CharacterEllipsis" />
+              </Grid>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
+    </Border>
+
+    <!-- What will actually be sent. -->
+    <StackPanel Grid.Row="3" Margin="14,10,14,14" Spacing="6">
+      <TextBlock Text="Arguments sent to the device" Classes="muted" />
+      <TextBox Text="{Binding ArgumentsPreview}" IsReadOnly="True" Classes="mono"
+               TextWrapping="Wrap" MinHeight="52" MaxHeight="72" AcceptsReturn="True" />
+      <TextBlock Text="Extra arguments" Classes="muted" />
+      <TextBox Text="{Binding RawArguments}" Watermark="appended verbatim, e.g. video_codec_options=i-frame-interval:2"
+               Classes="mono" />
+      <TextBlock Text="{Binding SaveStatus}" Classes="muted" FontSize="11" TextWrapping="Wrap" />
+    </StackPanel>
+  </Grid>
+</Window>

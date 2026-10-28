@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
+    <RootNamespace>Scrappy.App</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.22" />
+  </ItemGroup>
+
+  <!--
+    FFmpeg's Windows libraries live under a version-specific RID (win7-x64) that .NET 8 will not
+    resolve on its own. Flatten them into native/ for Windows publishes only; a Linux build has no
+    use for 40 MB of DLLs.
+  -->
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'win-x64'">
+    <Content Include="$(NuGetPackageRoot)ffmpeg.native/4.4.0.2386/runtimes/win7-x64/native/*.dll"
+             Link="%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Scrappy.Discovery\Scrappy.Discovery.csproj" />
+    <ProjectReference Include="..\Scrappy.Protocol\Scrappy.Protocol.csproj" />
+    <ProjectReference Include="..\Scrappy.Settings\Scrappy.Settings.csproj" />
+    <ProjectReference Include="..\Scrappy.Stream\Scrappy.Stream.csproj" />
+  </ItemGroup>
+
+</Project>

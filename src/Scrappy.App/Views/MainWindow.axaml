@@ -1,0 +1,140 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:video="using:Scrappy.App.Video"
+        x:Class="Scrappy.App.Views.MainWindow"
+        Title="Scrappy"
+        Width="1120" Height="700"
+        MinWidth="820" MinHeight="520">
+
+  <Grid RowDefinitions="Auto,*,32">
+
+    <!-- Top bar: which tablet, what state, start or stop. Nothing else. -->
+    <Border Grid.Row="0" Background="{StaticResource SurfaceBrush}"
+            BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1">
+      <StackPanel>
+
+        <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto" Height="46" Margin="14,0" VerticalAlignment="Center">
+          <TextBlock Text="Scrappy" FontSize="14" VerticalAlignment="Center" />
+
+          <!-- The tablet list. Scanned, never typed: one tablet means one click, or none. -->
+          <ComboBox Grid.Column="1" Width="440" Margin="18,0,0,0" VerticalAlignment="Center"
+                    ItemsSource="{Binding Devices}" SelectedItem="{Binding SelectedDevice}"
+                    PlaceholderText="{Binding ScanState}"
+                    ToolTip.Tip="Tablets that answered on this network.">
+            <ComboBox.ItemTemplate>
+              <DataTemplate>
+                <StackPanel Margin="0,2">
+                  <TextBlock Text="{Binding DisplayName}" />
+                  <TextBlock Text="{Binding Detail}" Classes="muted" FontSize="11" />
+                </StackPanel>
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+
+          <Button Grid.Column="2" Content="{Binding ScanLabel}" Margin="6,0,0,0" Width="76"
+                  VerticalAlignment="Center" Click="OnScan" IsEnabled="{Binding CanBrowse}"
+                  ToolTip.Tip="Look for tablets again." />
+
+          <ToggleButton Grid.Column="3" Content="Address" Margin="6,0,0,0" Width="86"
+                        VerticalAlignment="Center" IsChecked="{Binding ShowAddressEntry}"
+                        ToolTip.Tip="Type the address instead, when the network blocks discovery." />
+
+          <TextBlock Grid.Column="4" Text="{Binding Status}" Classes="muted" Margin="14,0"
+                     VerticalAlignment="Center" TextWrapping="Wrap" MaxLines="2"
+                     ToolTip.Tip="{Binding Status}" HorizontalAlignment="Left" />
+
+          <Button Grid.Column="5" Content="{Binding StartLabel}" Classes="primary"
+                  Width="92" Click="OnStartStop" IsEnabled="True" />
+        </Grid>
+
+        <!-- Hidden unless asked for. The picker is the normal way in. -->
+        <TextBox Text="{Binding Address}" Margin="14,0,14,8" Height="30"
+                 IsVisible="{Binding ShowAddressEntry}"
+                 Watermark="tablet address, e.g. 192.168.1.23:27183" />
+      </StackPanel>
+    </Border>
+
+    <Grid Grid.Row="1" ColumnDefinitions="*,268">
+
+      <!-- The feed itself. Nothing is drawn over it. -->
+      <video:VideoView x:Name="VideoSurface" />
+
+      <!-- Five choices, then a door to the rest. -->
+      <Border Grid.Column="1" Background="{StaticResource SurfaceBrush}"
+              BorderBrush="{StaticResource LineBrush}" BorderThickness="1,0,0,0" Padding="16,14">
+        <StackPanel Spacing="12">
+
+          <StackPanel Spacing="5">
+            <TextBlock Text="Resolution" Classes="muted" />
+            <ComboBox ItemsSource="{Binding ResolutionChoices}" SelectedItem="{Binding SelectedResolution}"
+                      PlaceholderText="Custom" />
+          </StackPanel>
+
+          <StackPanel Spacing="5">
+            <TextBlock Text="Frame rate" Classes="muted" />
+            <ComboBox ItemsSource="{Binding FrameRateChoices}" SelectedItem="{Binding SelectedFrameRate}"
+                      PlaceholderText="Custom" />
+          </StackPanel>
+
+          <StackPanel Spacing="5">
+            <TextBlock Text="Bitrate (Mbps)" Classes="muted" />
+            <TextBox Text="{Binding BitrateMbps}" Watermark="e.g. 12, up to 2000" />
+            <TextBlock Text="{Binding BitrateWarning}" Classes="muted" TextWrapping="Wrap"
+                       IsVisible="{Binding BitrateWarning, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+          </StackPanel>
+
+          <StackPanel Spacing="5">
+            <TextBlock Text="Codec" Classes="muted" />
+            <ComboBox ItemsSource="{Binding CodecChoices}" SelectedItem="{Binding SelectedCodec}"
+                      PlaceholderText="Custom" />
+          </StackPanel>
+
+          <StackPanel Spacing="5">
+            <TextBlock Text="Preset" Classes="muted" />
+            <ComboBox ItemsSource="{Binding QualityChoices}" SelectedItem="{Binding SelectedQuality}"
+                      PlaceholderText="Custom, see settings" />
+            <TextBlock Text="{Binding PresetNote}" Classes="muted" />
+            <Button Content="Apply preset" HorizontalAlignment="Stretch" Click="OnApplyPreset" />
+            <TextBlock Classes="muted" TextWrapping="Wrap" FontSize="11"
+                       Text="Presets change what the tablet encodes. Resolution and frame rate are the tablet's real cost; the panel's refresh rate never changes." />
+          </StackPanel>
+
+          <Border Height="1" Background="{StaticResource LineBrush}" Margin="0,4" />
+
+          <Button Content="Stream window" HorizontalAlignment="Stretch" Click="OnOpenStreamWindow"
+                  ToolTip.Tip="A window with only the video in it, for a streaming tool to capture." />
+          <Button Content="Check tablet" HorizontalAlignment="Stretch" Click="OnCheckTablet"
+                  ToolTip.Tip="Asks the tablet what display and encoders it has. Changes nothing." />
+
+          <Border IsVisible="{Binding HasFacts}" Background="#212429" CornerRadius="4" Padding="10,8">
+            <StackPanel Spacing="6">
+              <TextBlock Text="{Binding DeviceSummary}" TextWrapping="Wrap" FontSize="12" />
+              <TextBlock Text="{Binding Recommendation}" Classes="muted" TextWrapping="Wrap" />
+              <Button Content="Use suggested preset" Click="OnApplyRecommended" HorizontalAlignment="Stretch" />
+            </StackPanel>
+          </Border>
+
+          <Button Content="All settings" HorizontalAlignment="Stretch" Click="OnOpenSettings" />
+          <TextBlock Text="{Binding SettingsSummary}" Classes="muted" />
+          <TextBlock Text="{Binding DeviceText}" Classes="muted" TextWrapping="Wrap" />
+
+        </StackPanel>
+      </Border>
+    </Grid>
+
+    <!-- Live numbers. Measured, not decorative. -->
+    <Border Grid.Row="2" Background="{StaticResource SurfaceBrush}"
+            BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0">
+      <StackPanel Orientation="Horizontal" Spacing="20" Margin="14,0" VerticalAlignment="Center">
+        <TextBlock Text="{Binding FpsText}" Classes="muted" />
+        <TextBlock Text="{Binding BitrateText}" Classes="muted" />
+        <!-- Lag first among the warnings: 60 fps four seconds behind is still 60 fps. -->
+        <TextBlock Text="{Binding LagText}" Classes="muted" />
+        <TextBlock Text="{Binding DroppedText}" Classes="muted" />
+        <TextBlock Text="{Binding DecodeText}" Classes="muted" />
+        <TextBlock Text="{Binding BackendText}" Classes="muted" />
+        <TextBlock Text="{Binding LinkText}" Classes="muted" />
+      </StackPanel>
+    </Border>
+  </Grid>
+</Window>

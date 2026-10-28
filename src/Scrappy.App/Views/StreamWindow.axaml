@@ -1,0 +1,18 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:video="using:Scrappy.App.Video"
+        x:Class="Scrappy.App.Views.StreamWindow"
+        Title="Scrappy Stream"
+        Width="1440" Height="960"
+        MinWidth="480" MinHeight="320"
+        Background="#000000"
+        WindowStartupLocation="CenterScreen">
+
+  <!--
+    The capture target. Nothing but video: no toolbar, no labels, no stats. A streaming tool
+    captures this window's client area and gets the tablet frame and nothing else.
+    The title bar is kept on purpose - window capture lists windows by title, and a borderless
+    window is hard to find in those lists.
+  -->
+  <video:VideoView x:Name="Surface" />
+</Window>

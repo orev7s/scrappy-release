@@ -1,0 +1,17 @@
+# .NET
+bin/
+obj/
+
+# Gradle / Android
+.gradle/
+local.properties
+android/app/build/
+
+# Release artifacts are uploads, not source. The APK is published with a release.
+dist/
+out/
+*.apk
+*.log
+
+# Crash dumps
+core

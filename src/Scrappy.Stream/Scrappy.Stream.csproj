@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Scrappy.Protocol\Scrappy.Protocol.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Bindings and a native build ship together: the bindings are 4.4, so the libraries are 4.4. -->
+    <PackageReference Include="FFmpeg.AutoGen" Version="4.4.2" />
+    <PackageReference Include="FFmpeg.Native" Version="4.4.0.2386" />
+  </ItemGroup>
+
+  <!--
+    FFmpeg.Native ships its Windows libraries under the version-specific RID win7-x64, which
+    .NET 8 no longer resolves on its own (NETSDK1206). Flatten them into the output so the
+    Windows build finds them next to the executable. FFmpegRuntime also probes the runtimes
+    folder, so a missing copy degrades to a clear error rather than a mystery DllNotFound.
+  -->
+  <Target Name="CopyFFmpegNativesForWindows" AfterTargets="Build;Publish" Condition="Exists('$(NuGetPackageRoot)ffmpeg.native/4.4.0.2386/runtimes/win7-x64/native')">
+    <ItemGroup>
+      <FFmpegWindowsNative Include="$(NuGetPackageRoot)ffmpeg.native/4.4.0.2386/runtimes/win7-x64/native/*.dll" />
+    </ItemGroup>
+    <!-- Build and publish write to different folders, and the app is shipped from the latter. -->
+    <Copy SourceFiles="@(FFmpegWindowsNative)" DestinationFolder="$(OutDir)native" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(FFmpegWindowsNative)" DestinationFolder="$(PublishDir)native" SkipUnchangedFiles="true"
+          Condition="'$(PublishDir)' != ''" />
+  </Target>
+
+</Project>
