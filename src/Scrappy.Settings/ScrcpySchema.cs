@@ -3,7 +3,11 @@ using System.Text.Json.Serialization;
 
 namespace Scrappy.Settings;
 
-/// <summary>How a scrcpy option takes its argument, straight from the CLI table.</summary>
+/// <summary>
+/// The table is parsed on every launch, before the window exists, so it is parsed by generated code
+/// rather than by reflection. See <see cref="SchemaJsonContext"/>.
+/// </summary>
+[JsonConverter(typeof(OptionKindJsonConverter))]
 public enum OptionKind
 {
     /// <summary>No argument. Present means on.</summary>
@@ -44,6 +48,11 @@ public sealed class ScrcpyOption
     /// Plain-language explanation from scrcpy-options.explain.json. Falls back to the CLI help
     /// text, which is still an explanation, so no row is ever blank.
     /// </summary>
+    /// <remarks>
+    /// Filled in after the deserialisation pass, from a separate resource, so it is not part of the
+    /// JSON shape of an option.
+    /// </remarks>
+    [JsonIgnore]
     public string Explanation { get; internal set; } = "";
 
     /// <summary>
@@ -109,7 +118,7 @@ public sealed class ScrcpySchema
 
     public static ScrcpySchema Parse(Stream stream)
     {
-        ScrcpySchema schema = JsonSerializer.Deserialize<ScrcpySchema>(stream, SerializerOptions)
+        ScrcpySchema schema = JsonSerializer.Deserialize(stream, SchemaJsonContext.Default.ScrcpySchema)
             ?? throw new InvalidDataException("Option schema was empty.");
 
         if (schema.Options.Count == 0)
@@ -121,13 +130,6 @@ public sealed class ScrcpySchema
         return schema;
     }
 
-    private static readonly JsonSerializerOptions SerializerOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-        ReadCommentHandling = JsonCommentHandling.Skip,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.KebabCaseLower) },
-    };
-
     private static void AttachExplanations(ScrcpySchema schema)
     {
         Dictionary<string, string>? explanations = null;
@@ -136,7 +138,7 @@ public sealed class ScrcpySchema
         {
             if (stream is not null)
             {
-                explanations = JsonSerializer.Deserialize<Dictionary<string, string>>(stream, SerializerOptions);
+                explanations = JsonSerializer.Deserialize(stream, SchemaJsonContext.Default.DictionaryStringString);
             }
         }
 
@@ -169,4 +171,73 @@ public sealed class ScrcpySchema
     public ScrcpyOption? Find(string id) => Options.FirstOrDefault(o => o.Id == id);
 
     public ScrcpyOption? FindByFlag(string flag) => Options.FirstOrDefault(o => o.Flag == flag);
+}
+
+/// <summary>
+/// Source-generated serialisation for the option table and the explanation table.
+///
+/// The schema is read once per launch, before the window exists, and it is the same file every
+/// time. Parsing it through reflection means that launch pays for building the property metadata for
+/// <see cref="ScrcpySchema"/> and its 109 <see cref="ScrcpyOption"/> rows - JsonPropertyInfo objects,
+/// property accessors, a dictionary converter built with reflection emit - before a single byte of
+/// the screen has been drawn. The generated code has none of that: the parser is ordinary C# that
+/// the JIT compiles once, and the property names are string literals instead of looked-up metadata.
+/// </summary>
+[JsonSourceGenerationOptions(PropertyNameCaseInsensitive = true)]
+[JsonSerializable(typeof(ScrcpySchema))]
+[JsonSerializable(typeof(Dictionary<string, string>))]
+internal sealed partial class SchemaJsonContext : JsonSerializerContext
+{
+}
+
+/// <summary>
+/// <see cref="OptionKind"/> as the schema writes it: <c>flag</c>, <c>value</c>, <c>optional-value</c>.
+///
+/// This replaces <c>JsonStringEnumConverter</c> with a kebab-case naming policy. That converter is a
+/// factory: it builds a converter per enum at run time, transforming every member name through the
+/// policy first. The set of names is fixed and tiny, so it is spelled out here - which also removes
+/// the factory from the source-generated context, where it is not supported at all.
+/// </summary>
+internal sealed class OptionKindJsonConverter : JsonConverter<OptionKind>
+{
+    public override OptionKind Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        switch (reader.TokenType)
+        {
+            case JsonTokenType.String:
+                string text = reader.GetString() ?? "";
+                if (text.Equals("flag", StringComparison.OrdinalIgnoreCase))
+                {
+                    return OptionKind.Flag;
+                }
+
+                if (text.Equals("value", StringComparison.OrdinalIgnoreCase))
+                {
+                    return OptionKind.Value;
+                }
+
+                if (text.Equals("optional-value", StringComparison.OrdinalIgnoreCase))
+                {
+                    return OptionKind.OptionalValue;
+                }
+
+                throw new JsonException($"'{text}' is not a scrcpy option kind (flag, value, optional-value).");
+
+            case JsonTokenType.Number when reader.TryGetInt32(out int number) &&
+                                           number is >= 0 and <= (int)OptionKind.OptionalValue:
+                return (OptionKind)number;
+
+            default:
+                throw new JsonException($"Unexpected token {reader.TokenType} where an option kind was expected.");
+        }
+    }
+
+    public override void Write(Utf8JsonWriter writer, OptionKind value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(value switch
+        {
+            OptionKind.Flag => "flag",
+            OptionKind.Value => "value",
+            OptionKind.OptionalValue => "optional-value",
+            _ => throw new JsonException($"{value} is not a scrcpy option kind."),
+        });
 }
