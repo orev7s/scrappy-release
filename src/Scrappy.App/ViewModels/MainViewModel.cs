@@ -53,6 +53,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private string _recommendation = "";
     private PresetAdvisor.Advice? _advice;
     private LinkMap.WiredState _wiredState = LinkMap.WiredState.None;
+    private bool _audioEnabled = true;
+    private int _audioVolume = 100;
+    private string _audioDevice = "";
+    private IAudioSink? _audioSink;
+    private string _audioText = "off";
+    private IReadOnlyList<string> _audioDevices = ["Default device"];
 
     public MainViewModel(SettingsStore settings, ProfileStore profiles, AppStateAutosave? state = null)
     {
@@ -70,6 +76,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         // a reconnect is exactly how the window ended up claiming "the device stopped the stream"
         // while a new stream was already playing. The run continuation knows which session it
         // belongs to, so it owns that update.
+
+        if (state is not null)
+        {
+            _audioEnabled = state.AudioEnabled;
+            _audioVolume = state.AudioVolume;
+            _audioDevice = state.AudioDevice;
+        }
+
+        RefreshAudioDevices();
 
         _ticker = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
         _ticker.Tick += (_, _) => UpdateStats();
@@ -451,6 +466,98 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _lagText, value);
     }
 
+    /// <summary>
+    /// Whether the stream carries sound.
+    ///
+    /// The audio is rendered into a Windows playback device rather than handed to the mirror
+    /// window, because no program can take audio from a window: OBS captures a device or a
+    /// process. Point OBS at this device, or at Scrappy with Application Audio Capture, and the
+    /// stream has sound. Turning this off is for people who want a silent mirror, not the way to
+    /// mute it locally - the volume slider and the device picker do that.
+    /// </summary>
+    public bool AudioEnabled
+    {
+        get => _audioEnabled;
+        set
+        {
+            if (SetProperty(ref _audioEnabled, value))
+            {
+                if (_state is not null)
+                {
+                    _state.AudioEnabled = value;
+                }
+
+                Raise(nameof(AudioSummary));
+            }
+        }
+    }
+
+    /// <summary>Applied in software, so it changes what is heard and not what is captured.</summary>
+    public int AudioVolume
+    {
+        get => _audioVolume;
+        set
+        {
+            if (SetProperty(ref _audioVolume, Math.Clamp(value, 0, 100)))
+            {
+                if (_audioSink is not null)
+                {
+                    _audioSink.Volume = _audioVolume;
+                }
+
+                if (_state is not null)
+                {
+                    _state.AudioVolume = _audioVolume;
+                }
+
+                Raise(nameof(AudioSummary));
+            }
+        }
+    }
+
+    /// <summary>Playback device for the mirrored audio. Empty means the Windows default.</summary>
+    public string AudioDevice
+    {
+        get => _audioDevice;
+        set
+        {
+            if (SetProperty(ref _audioDevice, value ?? ""))
+            {
+                if (_state is not null)
+                {
+                    _state.AudioDevice = _audioDevice;
+                }
+            }
+        }
+    }
+
+    public IReadOnlyList<string> AudioDevices
+    {
+        get => _audioDevices;
+        private set => SetProperty(ref _audioDevices, value);
+    }
+
+    /// <summary>One line under the controls: what the audio is doing right now.</summary>
+    public string AudioSummary
+    {
+        get
+        {
+            if (!_audioEnabled)
+            {
+                return "off";
+            }
+
+            return _audioText;
+        }
+    }
+
+    /// <summary>Live counters, for the status strip.</summary>
+    public string AudioText
+    {
+        get => _audioText;
+        private set => SetProperty(ref _audioText, value);
+    }
+
     /// <summary>Which link the selected tablet is on, and what to do about it.</summary>
     public string LinkText
     {
@@ -700,6 +807,29 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Presenter.ClearPending();
         _stats.Reset();
 
+        // The sink is created per session so a device that was unplugged gets a clean open, and so
+        // the volume slider has something live to talk to.
+        _audioSink?.Dispose();
+        IAudioSink? sink = null;
+
+        if (AudioEnabled)
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                sink = new WaveOutSink(AudioDevice) { Volume = AudioVolume };
+                _audioSink = sink;
+            }
+            else
+            {
+                // Honest rather than silent: there is no Windows audio layer to render into here.
+                AudioText = "no audio on this platform";
+            }
+        }
+        else
+        {
+            AudioText = "off";
+        }
+
         try
         {
             _session = await MirrorSession.ConnectAsync(
@@ -712,6 +842,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                     LowLatency = false,
                     Request = BuildRequest(),
                     DumpPath = Program.Options.DumpPath,
+                    Audio = new AudioOptions { Enabled = AudioEnabled && sink is not null },
+                    AudioSink = sink,
                 },
                 _stats);
         }
@@ -734,6 +866,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                         LowLatency = false,
                         Request = BuildRequest(),
                         DumpPath = Program.Options.DumpPath,
+                        Audio = new AudioOptions { Enabled = AudioEnabled && sink is not null },
+                        AudioSink = sink,
                     },
                     _stats);
             }
@@ -888,6 +1022,23 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         return true;
     }
 
+    /// <summary>
+    /// Fills the device list. Called at startup and by the refresh button, because devices appear
+    /// and disappear while the app is running (a headset plugged in, a virtual cable installed
+    /// later). Never throws: a machine without audio still gets a working window.
+    /// </summary>
+    public void RefreshAudioDevices()
+    {
+        try
+        {
+            AudioDevices = OperatingSystem.IsWindows() ? WaveOutSink.Devices() : ["Default device"];
+        }
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException)
+        {
+            AudioDevices = ["Default device"];
+        }
+    }
+
     private void OnSessionStarted(string deviceName, int width, int height)
     {
         Dispatcher.UIThread.Post(() =>
@@ -955,6 +1106,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         DecodeText = _stats.FramesDecoded > 0 ? $"{_stats.DecodeMsAverage:F1} ms decode" : "-";
         BackendText = _stats.FramesDecoded > 0 ? $"{_stats.Codec}/{_stats.Backend}" : "-";
         LinkText = DescribeLink();
+
+        // Three states worth telling apart: playing, switched off, and failed to open.
+        AudioText = _session?.AudioStats?.State
+                    ?? _stats.AudioError
+                    ?? (_audioEnabled ? "waiting" : "off");
         Raise(nameof(SettingsSummary));
     }
 

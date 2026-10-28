@@ -80,6 +80,14 @@ public sealed class StreamStats
 
     public void OnPacketSkipped() => Interlocked.Increment(ref _framesSkippedByReceiver);
 
+    /// <summary>
+    /// Why the audio connection did not open. Video keeps running when this is set, which is the
+    /// point: a tablet that refused audio, or a PC with no sound card, still has a screen.
+    /// </summary>
+    public string? AudioError { get; private set; }
+
+    public void OnAudioError(string message) => AudioError = message;
+
     /// <summary>Frames per second over the last completed one-second window.</summary>
     public double Fps { get; private set; }
 

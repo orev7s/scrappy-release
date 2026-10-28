@@ -16,7 +16,7 @@ public enum OptionKind
     OptionalValue,
 }
 
-/// <summary>One row of <c>schema/scrcpy-options.json</c>. Generated, never hand-edited.</summary>
+/// <summary>One row of <c>schema/scrcpy-options.json</c>. Generated - never hand-edited.</summary>
 public sealed class ScrcpyOption
 {
     [JsonPropertyName("id")] public string Id { get; init; } = "";

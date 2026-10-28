@@ -63,5 +63,5 @@ object DeviceFacts {
 
 /** Reported by both the status endpoint and the discovery reply, so a version mismatch is visible. */
 object Version {
-    const val NAME = "0.1.9"
+    const val NAME = "0.2.0"
 }

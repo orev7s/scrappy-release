@@ -30,6 +30,7 @@ class MainActivity : Activity() {
     private val port = 27183
     private val consentRequest = 1001
     private val notificationRequest = 1002
+    private val audioRequest = 1003
 
     private lateinit var headline: TextView
     private lateinit var detail: TextView
@@ -129,6 +130,14 @@ class MainActivity : Activity() {
     }
 
     private fun begin() {
+        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            // Playback capture is gated behind RECORD_AUDIO even though nothing is recorded from a
+            // microphone. Without it the video still mirrors and the PC gets silence, so it is
+            // asked for here rather than silently skipped.
+            requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), audioRequest)
+            return
+        }
+
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
@@ -148,6 +157,17 @@ class MainActivity : Activity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == audioRequest) {
+            // Denied is survivable: video still mirrors, the PC just has no sound.
+            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+                begin()
+            } else {
+                SessionState.audioError("RECORD_AUDIO was declined, so the PC gets no sound")
+                requestConsent()
+            }
+            return
+        }
+
         if (requestCode == notificationRequest) {
             // Denied is not fatal; the session still runs, it is just quiet.
             requestConsent()
@@ -227,6 +247,11 @@ class MainActivity : Activity() {
         }
 
         links.text = "This tablet: " + NetLinks.describe(port)
+
+        val audioLine = SessionState.audioMessage
+        if (audioLine.isNotEmpty()) {
+            links.text = "$audioLine\n" + links.text
+        }
         hint.text = if (NetLinks.hasWired(port)) {
             "The cable is a working path: the PC lists it as Wired and it does not share the Wi-Fi."
         } else {

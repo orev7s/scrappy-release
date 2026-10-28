@@ -101,6 +101,24 @@
 
           <Border Height="1" Background="{StaticResource LineBrush}" Margin="0,4" />
 
+          <StackPanel Spacing="5">
+            <TextBlock Text="Audio" Classes="muted" />
+            <CheckBox Content="Play the tablet's sound here" IsChecked="{Binding AudioEnabled}"
+                      ToolTip.Tip="The tablet keeps playing too. Turn this off only for a silent mirror." />
+            <Grid ColumnDefinitions="*,Auto">
+              <Slider Grid.Column="0" Minimum="0" Maximum="100" Value="{Binding AudioVolume}"
+                      ToolTip.Tip="Applied in software, so it changes what you hear and not what OBS captures." />
+              <TextBlock Grid.Column="1" Text="{Binding AudioVolume}" Classes="muted"
+                         VerticalAlignment="Center" Margin="8,0,0,0" />
+            </Grid>
+            <ComboBox ItemsSource="{Binding AudioDevices}" SelectedItem="{Binding AudioDevice}"
+                      PlaceholderText="Default device"
+                      ToolTip.Tip="Give OBS a device it can capture. Pick a virtual cable to keep this PC silent." />
+            <TextBlock Text="{Binding AudioSummary}" Classes="muted" TextWrapping="Wrap" FontSize="11" />
+          </StackPanel>
+
+          <Border Height="1" Background="{StaticResource LineBrush}" Margin="0,4" />
+
           <Button Content="Stream window" HorizontalAlignment="Stretch" Click="OnOpenStreamWindow"
                   ToolTip.Tip="A window with only the video in it, for a streaming tool to capture." />
           <Button Content="Check tablet" HorizontalAlignment="Stretch" Click="OnCheckTablet"
@@ -133,6 +151,7 @@
         <TextBlock Text="{Binding DroppedText}" Classes="muted" />
         <TextBlock Text="{Binding DecodeText}" Classes="muted" />
         <TextBlock Text="{Binding BackendText}" Classes="muted" />
+        <TextBlock Text="{Binding AudioText}" Classes="muted" />
         <TextBlock Text="{Binding LinkText}" Classes="muted" />
       </StackPanel>
     </Border>

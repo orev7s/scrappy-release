@@ -38,6 +38,21 @@ public sealed class AppStateFile
     [JsonPropertyName("rawArguments")]
     public string RawArguments { get; set; } = "";
 
+    /// <summary>
+    /// Whether the stream carries sound. On by default: a mirror without audio is a surprising
+    /// default for the thing this app is for.
+    /// </summary>
+    [JsonPropertyName("audioEnabled")]
+    public bool AudioEnabled { get; set; } = true;
+
+    /// <summary>0 to 100, applied in software so it never touches the system mixer.</summary>
+    [JsonPropertyName("audioVolume")]
+    public int AudioVolume { get; set; } = 100;
+
+    /// <summary>Playback device name. Empty means the Windows default device.</summary>
+    [JsonPropertyName("audioDevice")]
+    public string AudioDevice { get; set; } = "";
+
     /// <summary>Informational: when this file was last written. Never used to decide anything.</summary>
     [JsonPropertyName("savedUtc")]
     public DateTime SavedUtc { get; set; }
@@ -130,6 +145,8 @@ public sealed class AppStateStore
             state.Options ??= new Dictionary<string, string>(StringComparer.Ordinal);
             state.Address ??= "";
             state.RawArguments ??= "";
+            state.AudioDevice ??= "";
+            state.AudioVolume = Math.Clamp(state.AudioVolume, 0, 100);
             return new LoadedState(state, Existed: true, Problem: null);
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException or NotSupportedException)
@@ -215,6 +232,9 @@ public sealed class AppStateAutosave : IDisposable
     private readonly Timer _timer;
 
     private string _address = "";
+    private bool _audioEnabled = true;
+    private int _audioVolume = 100;
+    private string _audioDevice = "";
     private string? _lastDeviceName;
     private string? _lastDeviceAddress;
     private bool _pending;
@@ -258,6 +278,52 @@ public sealed class AppStateAutosave : IDisposable
         }
     }
 
+    public bool AudioEnabled
+    {
+        get => _audioEnabled;
+        set
+        {
+            if (_audioEnabled == value)
+            {
+                return;
+            }
+
+            _audioEnabled = value;
+            Schedule();
+        }
+    }
+
+    public int AudioVolume
+    {
+        get => _audioVolume;
+        set
+        {
+            int clamped = Math.Clamp(value, 0, 100);
+            if (_audioVolume == clamped)
+            {
+                return;
+            }
+
+            _audioVolume = clamped;
+            Schedule();
+        }
+    }
+
+    public string AudioDevice
+    {
+        get => _audioDevice;
+        set
+        {
+            if (string.Equals(_audioDevice, value, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _audioDevice = value ?? "";
+            Schedule();
+        }
+    }
+
     public string? LastDeviceName
     {
         get => _lastDeviceName;
@@ -292,6 +358,9 @@ public sealed class AppStateAutosave : IDisposable
     public void Restore(LoadedState loaded)
     {
         _address = loaded.State.Address ?? "";
+        _audioEnabled = loaded.State.AudioEnabled;
+        _audioVolume = loaded.State.AudioVolume;
+        _audioDevice = loaded.State.AudioDevice ?? "";
         _lastDeviceName = loaded.State.LastDeviceName;
         _lastDeviceAddress = loaded.State.LastDeviceAddress;
     }
@@ -300,6 +369,9 @@ public sealed class AppStateAutosave : IDisposable
     public AppStateFile Snapshot() => new()
     {
         Address = _address,
+        AudioEnabled = _audioEnabled,
+        AudioVolume = _audioVolume,
+        AudioDevice = _audioDevice,
         LastDeviceName = _lastDeviceName,
         LastDeviceAddress = _lastDeviceAddress,
         Options = _settings.ToProfileValues(),

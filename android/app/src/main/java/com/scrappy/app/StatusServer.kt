@@ -71,6 +71,7 @@ object StatusServer {
             put("framesDropped", SessionState.framesDropped)
             put("bitrateNow", SessionState.bitrateNow)
             put("requestedBitrate", SessionState.requestedBitrate)
+            put("audio", SessionState.audioMessage)
             put("addresses", addresses)
 
             // True when the tablet has a USB-tethered address, i.e. the cable is a real path.

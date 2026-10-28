@@ -30,6 +30,7 @@ return command switch
     "links" => Links(),
     "plan" => Plan(),
     "advisor" => Advisor(),
+    "audio" => await AudioAsync(),
     "postmortem" => await PostmortemAsync(),
     "backlog" => await BacklogAsync(),
     "decode" => await DecodeThroughputAsync(args.Length > 1 ? args[1] : Fixture("pattern-960x640.h264")),
@@ -45,6 +46,7 @@ async Task<int> AllAsync()
     int linksResult = Links();
     int planResult = Plan();
     int advisorResult = Advisor();
+    int audioResult = await AudioAsync();
     int postmortemResult = await PostmortemAsync();
     int disconnectResult = await DisconnectAsync();
     int pipelineResult = await PipelineAsync();
@@ -52,7 +54,7 @@ async Task<int> AllAsync()
     int codecResult = await CodecAsync();
     int backlogResult = await BacklogAsync();
     return settingsResult == 0 && stateResult == 0 && discoveryResult == 0 && linksResult == 0 &&
-           planResult == 0 && advisorResult == 0 && postmortemResult == 0 && disconnectResult == 0 && pipelineResult == 0 &&
+           planResult == 0 && advisorResult == 0 && audioResult == 0 && postmortemResult == 0 && disconnectResult == 0 && pipelineResult == 0 &&
            handshakeResult == 0 && codecResult == 0 && backlogResult == 0
         ? 0
         : 1;
@@ -70,6 +72,7 @@ static int Usage()
           links                  a cable address is wired, a Wi-Fi address is not
           plan                   the cable is swept even when Wi-Fi answered first
           advisor                the suggested preset always exists, applies, and matches the codec
+          audio                  AAC round trip, and a full audio session over a socket
           postmortem             a dead session is explained by the tablet's own status
           disconnect             Stop closes the socket and a second session works
           pipeline               synthetic device -> decode -> presenter, end to end
@@ -1072,6 +1075,166 @@ async Task<int> PipelineAsync()
 }
 
 
+
+// --- audio: a real encoder, a real decoder, and a real socket --------------------------------
+//
+// The tablet side cannot be run here, but everything after it can: libavcodec encodes a tone the
+// way MediaCodec would, the transport carries it, and the decoder has to give back two seconds of
+// 48 kHz stereo at the right level. Without this check the audio path would be a claim.
+
+async Task<int> AudioAsync()
+{
+    var failures = new List<string>();
+
+    AacTestSource.Encoded tone;
+    try
+    {
+        // The native libraries are found by FFmpegRuntime; anything that touches libavcodec
+        // directly has to have that done first.
+        FFmpegRuntime.EnsureLocated();
+        tone = AacTestSource.EncodeTone(seconds: 2);
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"AUDIO FAIL  could not encode the test tone: {ex.Message}");
+        return 1;
+    }
+
+    if (tone.AudioSpecificConfig.Length == 0)
+    {
+        failures.Add("the encoder produced no AudioSpecificConfig, so the decoder would have no profile");
+    }
+
+    // 1. Decode straight from the encoder, with no transport in between.
+    var direct = new RecordingAudioSink();
+    int decodedSamples = 0;
+
+    using (var decoder = new Scrappy.Stream.AacDecoder(tone.SampleRate, tone.Channels))
+    {
+        decoder.SetExtradata(tone.AudioSpecificConfig);
+        var pcm = new short[8192 * 2];
+
+        foreach (byte[] unit in tone.AccessUnits)
+        {
+            int samples = decoder.Decode(unit, pcm);
+            if (samples > 0)
+            {
+                direct.Start(decoder.SampleRate, decoder.Channels);
+                direct.Write(pcm.AsSpan(0, samples * decoder.Channels));
+                decodedSamples += samples;
+            }
+        }
+    }
+
+    double expectedSeconds = tone.Seconds;
+    double actualSeconds = direct.Seconds;
+
+    if (Math.Abs(expectedSeconds - actualSeconds) > 0.15)
+    {
+        failures.Add($"decoded {actualSeconds:F2} s from {expectedSeconds:F2} s of AAC");
+    }
+
+    if (direct.SampleRate != tone.SampleRate || direct.Channels != tone.Channels)
+    {
+        failures.Add($"decoded {direct.SampleRate} Hz {direct.Channels} ch, expected {tone.SampleRate} Hz {tone.Channels} ch");
+    }
+
+    // A 440 Hz sine at quarter scale has an RMS of 0.25/sqrt(2). Anything near zero means silence
+    // arrived intact, which is the failure mode that looks like success.
+    double rms = direct.Rms();
+    if (rms < 0.12 || rms > 0.24)
+    {
+        failures.Add($"decoded level is {rms:F3}, expected about 0.177 for a quarter-scale sine");
+    }
+
+    // 2. The same audio through the wire: the line the PC sends, the packets the tablet sends.
+    using var device = new FakeAudioDevice(tone);
+
+    var sink = new RecordingAudioSink();
+    var stats = new StreamStats();
+    Scrappy.Stream.AudioStats? audioStats;
+
+    await using (Scrappy.Stream.AudioSession session = await Scrappy.Stream.AudioSession.ConnectAsync(
+                     "127.0.0.1",
+                     device.Port,
+                     sink,
+                     new Scrappy.Stream.AudioOptions()))
+    {
+        using var cap = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        await session.RunAsync(cap.Token);
+        audioStats = session.Stats;
+    }
+
+    await device.Done;
+
+    if (device.RequestLine is null || !device.RequestLine.Contains("\"stream\":\"audio\""))
+    {
+        failures.Add($"the PC did not identify the audio connection: '{device.RequestLine}'");
+    }
+    else if (!device.RequestLine.Contains("\"sampleRate\":48000"))
+    {
+        failures.Add($"the audio request did not name a sample rate: '{device.RequestLine}'");
+    }
+
+    if (audioStats is null || audioStats.Packets != tone.AccessUnits.Count)
+    {
+        failures.Add($"the session counted {audioStats?.Packets} packets, expected {tone.AccessUnits.Count}");
+    }
+
+    if (audioStats?.State is null || !audioStats.State.Contains("kHz", StringComparison.Ordinal))
+    {
+        failures.Add($"the session never reported its format: '{audioStats?.State}'");
+    }
+
+    if (Math.Abs(sink.Seconds - expectedSeconds) > 0.15)
+    {
+        failures.Add($"the socket delivered {sink.Seconds:F2} s of decoded audio, expected {expectedSeconds:F2} s");
+    }
+
+    if (sink.Rms() < 0.12)
+    {
+        failures.Add($"the socket delivered silence (level {sink.Rms():F3})");
+    }
+
+    // 3. A tablet that hangs up immediately must be a silent session, not an exception.
+    using (var dead = new DeadAudioDevice())
+    {
+        var deadSink = new RecordingAudioSink();
+        try
+        {
+            await using Scrappy.Stream.AudioSession session = await Scrappy.Stream.AudioSession.ConnectAsync(
+                "127.0.0.1", dead.Port, deadSink, new Scrappy.Stream.AudioOptions());
+
+            using var cap = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await session.RunAsync(cap.Token);
+        }
+        catch (Exception ex)
+        {
+            failures.Add($"a hung-up audio connection threw {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    Console.WriteLine($"encoded          {tone.AccessUnits.Count} access units, {expectedSeconds:F2} s, config {tone.AudioSpecificConfig.Length} bytes");
+    Console.WriteLine($"decoded          {actualSeconds:F2} s at {direct.SampleRate} Hz {direct.Channels} ch, level {rms:F3}");
+    Console.WriteLine($"over the socket  {sink.Seconds:F2} s, {audioStats?.Packets} packets, state '{audioStats?.State}'");
+    Console.WriteLine($"hung up          handled without throwing");
+
+    if (failures.Count == 0)
+    {
+        Console.WriteLine("AUDIO PASS");
+        Console.WriteLine();
+        return 0;
+    }
+
+    foreach (string failure in failures.Take(8))
+    {
+        Console.WriteLine("AUDIO FAIL  " + failure);
+    }
+
+    Console.WriteLine();
+    return 1;
+}
+
 // --- advisor: Check tablet must never throw, whatever the tablet reports ---------------------
 //
 // This is the crash that killed the PC app the first time the button was pressed on a tablet
@@ -1666,4 +1829,118 @@ sealed class StatusResponder : IDisposable
         _listener.Stop();
         _stop.Dispose();
     }
+}
+
+
+/// <summary>
+/// Stands in for the tablet's audio endpoint: reads the one line the PC opens with, then sends the
+/// config packet and the access units, exactly as MirrorServer does.
+/// </summary>
+internal sealed class FakeAudioDevice : IDisposable
+{
+    private readonly TcpListener _listener;
+    private readonly AacTestSource.Encoded _tone;
+
+    public FakeAudioDevice(AacTestSource.Encoded tone)
+    {
+        _tone = tone;
+        _listener = new TcpListener(IPAddress.Loopback, 0);
+        _listener.Start();
+        Done = Task.Run(ServeAsync);
+    }
+
+    public int Port => ((IPEndPoint)_listener.LocalEndpoint).Port;
+
+    /// <summary>The first line the PC sent, for the assertion that it identified itself.</summary>
+    public string? RequestLine { get; private set; }
+
+    public Task Done { get; }
+
+    private async Task ServeAsync()
+    {
+        TcpClient client;
+        try
+        {
+            client = await _listener.AcceptTcpClientAsync().ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            return;
+        }
+
+        using (client)
+        {
+            NetworkStream stream = client.GetStream();
+
+            var line = new StringBuilder();
+            while (true)
+            {
+                int b = stream.ReadByte();
+                if (b < 0)
+                {
+                    return;
+                }
+
+                if (b == '\n')
+                {
+                    break;
+                }
+
+                line.Append((char)b);
+            }
+
+            RequestLine = line.ToString();
+
+            byte[] header = new byte[ProtocolConstants.HeaderSize];
+            byte[] buffer = new byte[ProtocolConstants.HeaderSize + 4096];
+            ulong pts = 0;
+
+            void Write(bool config, byte[] payload)
+            {
+                StreamHeader.WritePacketHeader(header, config ? 0 : pts, config, false, payload.Length);
+                header.CopyTo(buffer, 0);
+                payload.CopyTo(buffer, ProtocolConstants.HeaderSize);
+                stream.Write(buffer, 0, ProtocolConstants.HeaderSize + payload.Length);
+            }
+
+            Write(config: true, _tone.AudioSpecificConfig);
+
+            foreach (byte[] unit in _tone.AccessUnits)
+            {
+                Write(config: false, unit);
+                pts += 1024UL * 1_000_000UL / (ulong)_tone.SampleRate;
+            }
+
+            stream.Flush();
+        }
+    }
+
+    public void Dispose() => _listener.Stop();
+}
+
+/// <summary>A tablet that accepts the audio connection and hangs up: the no-permission case.</summary>
+internal sealed class DeadAudioDevice : IDisposable
+{
+    private readonly TcpListener _listener;
+
+    public DeadAudioDevice()
+    {
+        _listener = new TcpListener(IPAddress.Loopback, 0);
+        _listener.Start();
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using TcpClient client = await _listener.AcceptTcpClientAsync().ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // Expected when the test finishes first.
+            }
+        });
+    }
+
+    public int Port => ((IPEndPoint)_listener.LocalEndpoint).Port;
+
+    public void Dispose() => _listener.Stop();
 }

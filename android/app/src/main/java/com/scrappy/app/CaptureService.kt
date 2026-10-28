@@ -71,6 +71,14 @@ class CaptureService : Service() {
 
     private var bitrates: BitrateController? = null
 
+    /**
+     * Audio lives outside [captureLock] on purpose. It has its own connection, its own lifetime and
+     * its own failure modes; letting it share the video encoder's lock would mean a stuck audio
+     * device could block a frame from being sent.
+     */
+    private var audio: AudioCapture? = null
+    private val audioLock = Any()
+
     private var server: MirrorServer? = null
     private val main = Handler(Looper.getMainLooper())
 
@@ -237,6 +245,37 @@ class CaptureService : Service() {
         existing.surface = surface
     }
 
+    /**
+     * Starts playback capture. The audio session calls this and holds the result for as long as its
+     * socket lives, which is independent of the video session.
+     */
+    fun startAudio(
+        sampleRate: Int,
+        channels: Int,
+        bitRate: Int,
+        onConfig: (ByteArray) -> Unit,
+        onFrame: (ByteArray, Long) -> Unit,
+    ) {
+        synchronized(audioLock) {
+            audio?.stop()
+            audio = null
+
+            val mediaProjection = projection
+                ?: throw IllegalStateException("no capture permission: audio needs the same consent as video")
+
+            val capture = AudioCapture(mediaProjection, sampleRate, channels, bitRate, onConfig, onFrame)
+            capture.start()
+            audio = capture
+        }
+    }
+
+    fun stopAudio() {
+        synchronized(audioLock) {
+            audio?.stop()
+            audio = null
+        }
+    }
+
     /** Releases the encoder and detaches it from the display, leaving the projection alive. */
     fun stopCapture() {
         synchronized(captureLock) {
@@ -309,6 +348,8 @@ class CaptureService : Service() {
      * listener. Safe to call when nothing is running.
      */
     private fun teardown() {
+        stopAudio()
+
         synchronized(captureLock) {
             releaseEncoderLocked()
 

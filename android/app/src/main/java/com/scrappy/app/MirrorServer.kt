@@ -171,7 +171,69 @@ class MirrorServer(private val port: Int, private val service: CaptureService) :
             JSONObject()
         }
 
+        // A JSON line that names a stream is a second connection for that stream. Audio is the only
+        // one so far; it gets its own socket so a video stall can never hold up the sound.
+        if (settings.optString("stream") == "audio") {
+            runAudioSession(socket, settings)
+            return
+        }
+
         runSession(socket, settings)
+    }
+
+    /**
+     * Streams the tablet's audio to one PC connection.
+     *
+     * The PC never sends anything on this socket after its first line, so a read that returns -1 is
+     * the disconnect - the same watchdog trick the video session uses, for the same reason.
+     */
+    private fun runAudioSession(socket: Socket, settings: JSONObject) {
+        socket.tcpNoDelay = true
+
+        try {
+            // Audio is a trickle compared with video; a small buffer keeps it from queueing.
+            socket.sendBufferSize = 64 * 1024
+        } catch (e: Exception) {
+            // Only a latency optimisation.
+        }
+
+        val sampleRate = settings.optInt("sampleRate", 48_000)
+        val channels = settings.optInt("channels", 2)
+        val bitRate = settings.optInt("bitrate", 128_000)
+
+        val tx = AudioSender(socket)
+        tx.start()
+
+        try {
+            service.startAudio(
+                sampleRate,
+                channels,
+                bitRate,
+                onConfig = { csd -> tx.submit(Wire.encodeConfig(csd)) },
+                onFrame = { payload, pts ->
+                    tx.submit(Wire.encodeFrame(pts, isKeyFrame = false, payload = java.nio.ByteBuffer.wrap(payload)))
+                },
+            )
+
+            SessionState.audio("$sampleRate Hz, ${if (channels == 1) "mono" else "stereo"}, ${bitRate / 1000} kbps")
+            Log.i(TAG, "audio session started")
+
+            val input = socket.getInputStream()
+            val scratch = ByteArray(16)
+            while (running && !socket.isClosed) {
+                if (input.read(scratch) < 0) {
+                    break
+                }
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "audio session: ${t.message}")
+            SessionState.audioError(t.message ?: "audio stopped")
+        } finally {
+            service.stopAudio()
+            tx.stop()
+            closeQuietly(socket)
+            SessionState.audioStopped()
+        }
     }
 
     /**

@@ -20,11 +20,24 @@ the session worked. It also confused anyone reading the two ports off the error 
 
 Status is read-only: the app reports the panel's refresh rate, it never sets it.
 
+## Audio
+
+The tablet's playback is captured with `AudioPlaybackCaptureConfiguration`, which takes a copy
+rather than redirecting: the tablet keeps playing to its own speakers and the PC gets the same
+sound. Nothing here can silence the tablet, and nothing needs to.
+
+Capture is gated behind `RECORD_AUDIO` on Android even though no microphone is involved. Without
+that permission video still mirrors and the PC has no sound, so the app asks for it before starting
+and reports the refusal on screen.
+
+Apps can opt out of playback capture (`android:allowAudioPlaybackCapture="false"`), and DRM audio
+always is. Those mirror silently, which is worth knowing before chasing a bug in this app.
+
 ## Build
 
 ```sh
 cd android
-gradle assembleDebug           # needs an Android SDK, ANDROID_HOME set, JDK 17
+./gradlew assembleDebug        # needs an Android SDK, ANDROID_HOME set, JDK 17
 adb install app/build/outputs/apk/debug/app-debug.apk
 ```
 

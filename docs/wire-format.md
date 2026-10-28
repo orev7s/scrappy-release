@@ -58,3 +58,35 @@ So `pts = pts_flags & ((1 << 61) - 1)`, and a config packet carries no meaningfu
 - Payload length is the only framing; there is no length prefix above the packet level, so a
   desynchronised reader cannot resynchronise by scanning. Any read error is terminal - drop
   the socket and reconnect rather than attempting to resync.
+
+## Audio
+
+Audio is Scrappy's own addition: scrcpy's audio stream format is deliberately not used, because
+this app controls both ends and has different priorities. The video bytes above are unchanged and
+remain the compatibility promise.
+
+It is a second TCP connection to the same port, so the tablet reads the first line and decides
+which of the three things the connection is.
+
+1. Client opens a connection and sends one UTF-8 line, terminated by `\n`:
+
+   ```json
+   {"stream":"audio","codec":"aac","sampleRate":48000,"channels":2,"bitrate":128000}
+   ```
+
+2. Server replies with a **config packet**: the same 12-byte header as video, with the config flag
+   set, whose payload is the AAC `AudioSpecificConfig`. Five bytes for AAC-LC at 48 kHz stereo, and
+   the decoder needs it: it carries the profile and the sample rate index.
+3. Then one packet per AAC access unit, the same 12-byte header, PTS in microseconds, key-frame
+   flag clear. No device name is sent on this connection.
+
+Fixed for now: AAC-LC, 48 kHz, stereo, 128 kbps. The encoder on the tablet is MediaCodec, so the
+config packet is whatever `csd-0` says, and the PC's decoder trusts that rather than the request.
+
+Why a separate socket: video and audio have opposite congestion policies. A late video frame is
+thrown away and the picture resynchronises at the next keyframe; a late audio frame is a click.
+Sharing one TCP connection would let a video stall hold up the sound, and the sound has nowhere else
+to go.
+
+Why AAC rather than raw PCM: raw 48 kHz stereo is 1.5 Mbps, which is a real share of a weak Wi-Fi
+link that is already the reason the video stutters. The same audio in AAC is 128 kbps.

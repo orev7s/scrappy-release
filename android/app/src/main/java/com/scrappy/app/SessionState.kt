@@ -51,6 +51,10 @@ object SessionState {
     @Volatile var startedAt: Long = 0
         private set
 
+    /** What the audio side is doing. Empty when no PC has asked for sound. */
+    @Volatile var audioMessage: String = ""
+        private set
+
     fun starting(port: Int) {
         phase = Phase.Starting
         this.port = port
@@ -85,6 +89,18 @@ object SessionState {
         framesSent++
     }
 
+    fun audio(format: String) {
+        audioMessage = "Audio: $format"
+    }
+
+    fun audioStopped() {
+        audioMessage = ""
+    }
+
+    fun audioError(reason: String) {
+        audioMessage = "Audio stopped: $reason"
+    }
+
     fun link(dropped: Long, bitrate: Int) {
         framesDropped = dropped
         bitrateNow = bitrate
@@ -100,6 +116,7 @@ object SessionState {
         message = reason
         bitrateNow = 0
         framesDropped = 0
+        audioMessage = ""
     }
 
     fun failed(error: Throwable, where: String) {

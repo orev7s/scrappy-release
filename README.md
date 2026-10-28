@@ -11,6 +11,7 @@ The aim is a mirror that feels like a monitor cable. Low latency, steady frame r
 - 60 fps at up to 2560x1708, in H.264 or H.265
 - Wi-Fi or USB cable, with no adb and no developer options
 - automatic discovery, so you never type an IP address
+- the tablet's sound on the PC as well, so a capture program can take it
 - the full scrcpy option set in the settings, saved automatically
 - a live lag figure, so a weak link is visible instead of mysterious
 
@@ -37,6 +38,14 @@ USB tethering runs the same stream over the USB link. It is faster than Wi-Fi an
 3. Press **Scan** on the PC. The tablet now appears twice, and the one marked **Wired** is the cable.
 
 Tethering does not turn on by itself when you plug the cable in. Until it does, the PC sees a USB device with no address, and the scan tells you that in as many words.
+
+## Sound
+
+The tablet keeps playing its own audio, and the PC receives a copy. Nothing is muted on the tablet and nothing is redirected: Android lets an app tap the playback mix, so both ends get the sound.
+
+On the PC the audio is played through a normal Windows playback device. That is deliberate, because a capture program like OBS cannot take audio from a window. Point OBS at the device Scrappy is playing into, or at Scrappy itself with Application Audio Capture, and it will hear the tablet. Pick a virtual cable in the device list if you want the speakers on this PC to stay quiet.
+
+The volume slider is applied before the audio reaches the driver, so turning Scrappy down changes what you hear and not what OBS records.
 
 ## When it stutters
 

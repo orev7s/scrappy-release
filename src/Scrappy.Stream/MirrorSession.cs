@@ -37,6 +37,15 @@ public sealed record MirrorOptions
     /// </summary>
     public double MaxBacklogMs { get; init; } = 300;
 
+    /// <summary>What to ask the tablet for on the audio connection.</summary>
+    public AudioOptions Audio { get; init; } = new();
+
+    /// <summary>
+    /// Where decoded audio is played. Null means audio is not requested at all - not "requested
+    /// and thrown away", because the tablet should not spend power capturing sound nobody wants.
+    /// </summary>
+    public IAudioSink? AudioSink { get; init; }
+
     /// <summary>
     /// One JSON line sent before the handshake. This is how the PC decides what the tablet
     /// encodes; an app that does not read it ignores it harmlessly, since the bytes are consumed
@@ -71,10 +80,12 @@ public sealed class MirrorSession : IAsyncDisposable
     private readonly int _port;
     private readonly long _backlogBudgetBytes;
     private readonly double _assumedBytesPerSecond;
+    private readonly MirrorOptions _options;
     private int _ended;
     private int _disposed;
     private int _transportClosed;
     private bool _skipping;
+    private AudioSession? _audio;
 
     /// <summary>One megabyte: enough for a Wi-Fi jitter burst at these rates, not a backlog.</summary>
     public const int DefaultReceiveBufferBytes = 1 << 20;
@@ -91,6 +102,7 @@ public sealed class MirrorSession : IAsyncDisposable
     {
         _host = host;
         _port = port;
+        _options = options;
         _backlogBudgetBytes = BacklogBudget(options);
         _assumedBytesPerSecond = (options.Request?.Bitrate is > 0 and var bitrate ? bitrate : 12_000_000) / 8.0;
         _client = client;
@@ -125,6 +137,9 @@ public sealed class MirrorSession : IAsyncDisposable
     public int Port => _port;
 
     public StreamStats Stats { get; }
+
+    /// <summary>Audio counters, or null when no audio was requested. Never fails a session.</summary>
+    public AudioStats? AudioStats => _audio?.Stats;
 
     /// <summary>Why the session stopped. Null while it is running.</summary>
     public string? EndReason { get; private set; }
@@ -325,6 +340,11 @@ public sealed class MirrorSession : IAsyncDisposable
                     {
                         started = true;
                         _presenter.OnSessionStarted(DeviceName, width, height);
+
+                        // Audio starts here rather than before the video handshake: a second
+                        // connection opened too early competes with the one that carries the
+                        // picture, and the picture is what the user is waiting for.
+                        await StartAudioAsync(linked.Token).ConfigureAwait(false);
                     }
 
                     continue;
@@ -418,12 +438,60 @@ public sealed class MirrorSession : IAsyncDisposable
         }
         finally
         {
+            if (_audio is not null)
+            {
+                await _audio.DisposeAsync().ConfigureAwait(false);
+                _audio = null;
+            }
+
             EndReason = reason;
             Stats.RollWindow();
             if (Interlocked.Exchange(ref _ended, 1) == 0)
             {
                 _presenter.OnSessionEnded(reason);
             }
+        }
+    }
+
+    /// <summary>
+    /// Opens the audio connection if one was asked for. Runs detached from the video loop: the
+    /// read side of the audio session is its own task, and a failure here is reported in the audio
+    /// stats rather than ending the stream.
+    /// </summary>
+    private async Task StartAudioAsync(CancellationToken cancellationToken)
+    {
+        if (!_options.Audio.Enabled || _options.AudioSink is null)
+        {
+            return;
+        }
+
+        try
+        {
+            AudioSession session = await AudioSession
+                .ConnectAsync(_host, _port, _options.AudioSink, _options.Audio, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+
+            _audio = session;
+            session.Stats.State = "connected";
+
+            // Deliberately not awaited: the audio loop runs for the life of the session.
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await session.RunAsync(_abort.Token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    session.Stats.Error = ex.Message;
+                }
+            }, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            // The tablet may not support audio, may have no permission, or the port may refuse a
+            // second connection. All of those mean "no sound", never "no picture".
+            Stats.OnAudioError(ex.Message);
         }
     }
 

@@ -11,8 +11,8 @@ android {
         applicationId = "com.scrappy.app"
         minSdk = 30          // MediaProjection with a foreground service type, and scrcpy 5.x behaviour
         targetSdk = 35
-        versionCode = 9
-        versionName = "0.1.9"
+        versionCode = 10
+        versionName = "0.2.0"
     }
 
     buildTypes {

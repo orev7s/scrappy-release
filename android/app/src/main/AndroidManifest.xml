@@ -10,6 +10,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Playback capture, so the PC receives the tablet's sound. A copy is taken: the tablet keeps
+         playing to its own speakers. Required by AudioRecord for the capture API. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
     <application
         android:label="Scrappy"
         android:allowBackup="false"
