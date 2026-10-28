@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- The screenshot command renders the real dialog through Avalonia's headless Skia backend,
+         so the app itself has to be referenced. No framework, no xunit: plain PASS/FAIL lines. -->
+    <AssemblyName>Scrappy.Verify.Updates</AssemblyName>
+    <RootNamespace>Scrappy.Verify.Updates</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Scrappy.App\Scrappy.App.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Headless" Version="11.3.22" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="fixtures\*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
