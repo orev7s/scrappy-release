@@ -1515,10 +1515,14 @@ int Plan()
 
 // --- backlog: a receiver that cannot keep up skips to the next keyframe, it does not lag ------
 //
-// The device here is not pacing itself (Fps = 0), and the presenter takes 2 ms per frame: a stand-in
-// for a PC that cannot decode this size in real time. Without the skip the socket fills with frames
-// that are already late and the delay grows for the whole session - which is what "the frames come
-// in extremely slowly" actually was.
+// The device here is not pacing itself (Fps = 0), and the presenter takes a few ms per frame: a
+// stand-in for a PC that cannot decode this size in real time. Without the skip the socket fills
+// with frames that are already late and the delay grows for the whole session - which is what "the
+// frames come in extremely slowly" actually was.
+//
+// The same scenario runs at two receiver speeds. A drop policy that only holds when the receiver is
+// almost fast enough is not a policy, and the invariant has to be stated in the units a person
+// feels: the picture may never be more than N ms of video behind the source, whatever the speed.
 
 async Task<int> BacklogAsync()
 {
@@ -1529,7 +1533,44 @@ async Task<int> BacklogAsync()
         return 1;
     }
 
+    var failures = new List<string>();
+
+    // Just too slow, and far too slow.
+    foreach (int presenterMs in new[] { 2, 8 })
+    {
+        failures.AddRange(await BacklogRunAsync(fixture, presenterMs));
+    }
+
+    if (failures.Count == 0)
+    {
+        Console.WriteLine("BACKLOG PASS");
+        Console.WriteLine();
+        return 0;
+    }
+
+    foreach (string failure in failures)
+    {
+        Console.WriteLine("BACKLOG FAIL  " + failure);
+    }
+
+    Console.WriteLine();
+    return 1;
+}
+
+async Task<List<string>> BacklogRunAsync(string fixture, int presenterMs)
+{
+    // The lag budget a session works to, matching MirrorOptions.MaxBacklogMs. A copy of the product
+    // number, so the invariant below cannot drift away from it without this check noticing.
+    const double lagBudgetMs = 300;
+
+    // The socket may hold twice the budget. With a buffer no larger than the budget, TCP flow control
+    // throttles an unpaced sender down to the receiver's own speed, no backlog is ever built and the
+    // drop policy is never exercised at all (measured: buffer = budget -> 0 skips, 300 ms steady).
+    // Twice the budget is therefore the real upper bound on how far behind the picture can be.
+    const double lagCeilingMs = 2 * lagBudgetMs;
+
     const int frames = 1500;
+    var failures = new List<string>();
 
     await using var device = new SyntheticDevice(new SyntheticDeviceOptions
     {
@@ -1551,7 +1592,7 @@ async Task<int> BacklogAsync()
     {
         ExpectedWidth = 960,
         ExpectedHeight = 640,
-        DelayPerFrameMs = 2,
+        DelayPerFrameMs = presenterMs,
     };
     var stats = new StreamStats();
 
@@ -1567,8 +1608,6 @@ async Task<int> BacklogAsync()
     await session.RunAsync(cap.Token);
     clock.Stop();
     await sender;
-
-    var failures = new List<string>();
 
     if (stats.FramesReceived < frames / 2)
     {
@@ -1599,31 +1638,28 @@ async Task<int> BacklogAsync()
         failures.Add($"delay peaked at {stats.QueueDelayMsPeak:F0} ms of video: the source outran the receiver unchecked");
     }
 
+    // The invariant, at this receiver speed: the socket - which is the only queue a TCP stream has -
+    // may hold the budget plus the buffer that exists to let the policy see a backlog at all, and not
+    // one millisecond more. This is what stops the fix from being "the number went down a bit".
+    if (stats.QueueDelayMsPeak > lagCeilingMs)
+    {
+        failures.Add($"at {presenterMs} ms/frame the delay peaked at {stats.QueueDelayMsPeak:F0} ms of video, " +
+                     $"above the {lagCeilingMs:F0} ms a presented frame may ever be behind the source");
+    }
+
     // Skipping to a keyframe must not leave the decoder decoding against a frame it never saw.
     if (stats.DecodeErrors != 0)
     {
         failures.Add($"{stats.DecodeErrors} decode errors: skipping did not resynchronise at a keyframe");
     }
 
+    Console.WriteLine($"receiver         {presenterMs} ms per frame");
     Console.WriteLine($"arrived          {stats.FramesReceived} access units in {clock.ElapsedMilliseconds} ms");
     Console.WriteLine($"skipped          {stats.FramesSkippedByReceiver} late frames, {stats.FramesDecoded} decoded");
     Console.WriteLine($"worst lag        {stats.QueueDelayMsPeak:F0} ms in the socket ({stats.QueueDelayMs:F0} ms typical)");
     Console.WriteLine($"decode errors    {stats.DecodeErrors}");
 
-    if (failures.Count == 0)
-    {
-        Console.WriteLine("BACKLOG PASS");
-        Console.WriteLine();
-        return 0;
-    }
-
-    foreach (string failure in failures)
-    {
-        Console.WriteLine("BACKLOG FAIL  " + failure);
-    }
-
-    Console.WriteLine();
-    return 1;
+    return failures;
 }
 
 // --- postmortem: "the device closed the stream" is replaced by what the tablet says -----------
@@ -1647,6 +1683,14 @@ async Task<int> PostmortemAsync()
         {
             failures.Add($"the tablet's own error was not repeated: '{explained}'");
         }
+
+        // The explanation can only be judged if the PC actually asked. Before this check existed,
+        // a silent probe produced "the tablet is not answering on port N" for a tablet that was
+        // answering, and nothing in the output said so.
+        if (failed.RequestsRead == 0 || !(failed.LastRequestLine ?? "").Contains("/status", StringComparison.Ordinal))
+        {
+            failures.Add("the PC never sent a status request to a tablet that was listening");
+        }
     }
 
     // A tablet that went straight back to listening has nothing to say, and saying so is the point.
@@ -1661,6 +1705,11 @@ async Task<int> PostmortemAsync()
         if (!explained.Contains("Waiting for the PC", StringComparison.Ordinal))
         {
             failures.Add($"a tablet back to listening was not described as such: '{explained}'");
+        }
+
+        if (listening.RequestsRead == 0)
+        {
+            failures.Add("the PC never sent a status request to a tablet that had gone back to listening");
         }
     }
 
@@ -1771,12 +1820,25 @@ static string FindRepositoryRoot()
     return Directory.GetCurrentDirectory();
 }
 
-/// <summary>A one-endpoint stand-in for the tablet's /status, for the explanation tests.</summary>
+/// <summary>
+/// A one-endpoint stand-in for the tablet's /status, for the explanation tests.
+///
+/// It reads the request line before it answers, because that is what the tablet does:
+/// MirrorServer.readFirstLine (android/.../MirrorServer.kt:116) waits up to 800 ms for one line and
+/// only then hands the socket to StatusServer.respond. A stand-in that answers without reading is
+/// not a tablet: it closes its read side while the PC's GET is still in flight, the PC's write is
+/// reset, and the probe honestly reports a device that is gone. That was the whole of the
+/// "classification is lost" bug on the PC side - the report was right, the fake device was lying.
+/// </summary>
 sealed class StatusResponder : IDisposable
 {
+    /// <summary>How long the tablet waits for a request line (MirrorServer.FIRST_LINE_TIMEOUT_MS).</summary>
+    private const int FirstLineTimeoutMs = 800;
+
     private readonly TcpListener _listener;
     private readonly string _body;
     private readonly CancellationTokenSource _stop = new();
+    private int _requestsRead;
 
     public StatusResponder(string body)
     {
@@ -1787,6 +1849,12 @@ sealed class StatusResponder : IDisposable
     }
 
     public int Port => ((IPEndPoint)_listener.LocalEndpoint).Port;
+
+    /// <summary>The first line of the last request that arrived, so a test can prove one did.</summary>
+    public string? LastRequestLine { get; private set; }
+
+    /// <summary>How many complete request lines have been read.</summary>
+    public int RequestsRead => Volatile.Read(ref _requestsRead);
 
     private async Task ServeAsync()
     {
@@ -1808,6 +1876,16 @@ sealed class StatusResponder : IDisposable
                 {
                     try
                     {
+                        string? requestLine = await ReadFirstLineAsync(client).ConfigureAwait(false);
+                        if (requestLine is null)
+                        {
+                            // A connection that says nothing gets nothing, exactly as on the tablet.
+                            return;
+                        }
+
+                        LastRequestLine = requestLine;
+                        Interlocked.Increment(ref _requestsRead);
+
                         byte[] response = Encoding.UTF8.GetBytes(
                             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n" +
                             $"Content-Length: {Encoding.UTF8.GetByteCount(_body)}\r\nConnection: close\r\n\r\n{_body}");
@@ -1821,6 +1899,41 @@ sealed class StatusResponder : IDisposable
                 }
             });
         }
+    }
+
+    /// <summary>One line, or null when the peer said nothing within the tablet's own timeout.</summary>
+    private async Task<string?> ReadFirstLineAsync(TcpClient client)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token);
+        timeout.CancelAfter(FirstLineTimeoutMs);
+
+        NetworkStream stream = client.GetStream();
+        var line = new StringBuilder();
+        byte[] one = new byte[1];
+
+        try
+        {
+            while (line.Length < 1024)
+            {
+                if (await stream.ReadAsync(one, timeout.Token).ConfigureAwait(false) == 0)
+                {
+                    return null;
+                }
+
+                if (one[0] == (byte)'\n')
+                {
+                    return line.ToString().TrimEnd('\r');
+                }
+
+                line.Append((char)one[0]);
+            }
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or IOException)
+        {
+            return null;
+        }
+
+        return line.ToString();
     }
 
     public void Dispose()

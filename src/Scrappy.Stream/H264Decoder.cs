@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using FFmpeg.AutoGen;
 using Scrappy.Protocol;
@@ -248,19 +249,87 @@ public sealed unsafe class H264Decoder : IDisposable
         Drain(onFrame, pts, arrivalTimestamp);
     }
 
+    /// <summary>How long a flush may wait for frames the decoder's workers are still holding.</summary>
+    public const int FlushTimeoutMs = 2000;
+
     /// <summary>
-    /// Drains the decoder at end of stream. A null packet is the flush marker: without it the
-    /// frames still in the reorder buffer (one per B-frame of delay) are simply never emitted.
+    /// Drains the decoder at end of stream, and returns how many frames it produced.
+    ///
+    /// A null packet is the flush marker: without it the frames still inside the decoder are
+    /// never emitted. Two details decide whether the tail of a stream survives, and both used to
+    /// be treated as "already done":
+    ///
+    ///  - the marker itself is refused with EAGAIN while the input queue is still full, and a
+    ///    refused marker is not a queued marker;
+    ///  - once the marker is queued, a receive that returns EAGAIN means "the worker threads have
+    ///    not finished yet", not "there is nothing left".
+    ///
+    /// With 12 cores this dropped 14 of the last 120 frames of a session, with zero decode
+    /// errors, because nothing failed - the frames were simply never asked for.
     /// </summary>
-    public void Flush(Action<VideoFrame> onFrame)
+    public int Flush(Action<VideoFrame> onFrame)
     {
         if (_context is null)
         {
-            return;
+            return 0;
         }
 
-        ffmpeg.avcodec_send_packet(_context, null);
-        Drain(onFrame, 0, 0);
+        long deadline = Stopwatch.GetTimestamp() + (long)(FlushTimeoutMs / 1000.0 * Stopwatch.Frequency);
+
+        // Offer the marker until it is accepted, taking whatever the decoder hands back first.
+        int sent;
+        while ((sent = ffmpeg.avcodec_send_packet(_context, null)) == ffmpeg.AVERROR(ffmpeg.EAGAIN))
+        {
+            Drain(onFrame, 0, 0);
+            if (Stopwatch.GetTimestamp() > deadline)
+            {
+                return 0;
+            }
+        }
+
+        if (sent < 0 && sent != ffmpeg.AVERROR_EOF)
+        {
+            return 0;
+        }
+
+        // The marker is queued: receive until EOF, not until the first EAGAIN.
+        int emitted = 0;
+        while (true)
+        {
+            int received = ffmpeg.avcodec_receive_frame(_context, _frame);
+
+            if (received == ffmpeg.AVERROR_EOF)
+            {
+                return emitted;
+            }
+
+            if (received == ffmpeg.AVERROR(ffmpeg.EAGAIN))
+            {
+                if (Stopwatch.GetTimestamp() > deadline)
+                {
+                    return emitted;
+                }
+
+                Thread.Sleep(1);
+                continue;
+            }
+
+            if (received < 0)
+            {
+                throw new DecodeException(
+                    $"Decoder failed while draining the end of the stream (error {received}).");
+            }
+
+            try
+            {
+                onFrame(Convert(_frame, 0, 0));
+                emitted++;
+            }
+            finally
+            {
+                ffmpeg.av_frame_unref(_frame);
+            }
+        }
     }
 
     private void Drain(Action<VideoFrame> onFrame, ulong pts, long arrivalTimestamp)
