@@ -316,7 +316,7 @@ public partial class MainWindow : Window
             Width = 3200,
             Height = 2136,
             RefreshHz = 144,
-            Version = "0.2.1",
+            Version = "0.2.2",
             Source = "broadcast",
             Transport = transport,
         };
