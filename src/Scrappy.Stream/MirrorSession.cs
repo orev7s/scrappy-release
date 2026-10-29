@@ -246,9 +246,15 @@ public sealed class MirrorSession : IAsyncDisposable
     /// policy only ever sees the backlog after it has happened. Measured at 2097 ms of video with
     /// the old constant; the peer's own send buffer (128 KB, MirrorServer.kt) is the other half of
     /// the same budget.
+    ///
+    /// Requesting exactly one budget, not two: Linux doubles a requested SO_RCVBUF for its own
+    /// bookkeeping, so a request of 2x the budget becomes a socket that holds about 4x the budget
+    /// before the cap, which is what pushed the peak lag past the ceiling (683 ms at 2 ms/frame
+    /// against 600 ms). One budget requested gives a socket of about twice the budget, and the
+    /// backlog check peaks at 421-431 ms.
     /// </summary>
     public static int ReceiveBufferBytesFor(MirrorOptions options) =>
-        (int)Math.Clamp(2 * BacklogBudget(options), MinReceiveBufferBytes, MaxReceiveBufferBytes);
+        (int)Math.Clamp(BacklogBudget(options), MinReceiveBufferBytes, MaxReceiveBufferBytes);
 
     /// <summary>
     /// Bytes per second of <em>video</em>, for turning a backlog into milliseconds.
